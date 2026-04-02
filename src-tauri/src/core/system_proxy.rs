@@ -41,7 +41,7 @@ mod win {
             RegOpenKeyExW(
                 HKEY_CURRENT_USER,
                 PCWSTR(subkey.as_ptr()),
-                0,
+                None,
                 windows::Win32::System::Registry::REG_SAM_FLAGS(access),
                 &mut hkey,
             )
@@ -58,7 +58,7 @@ mod win {
             RegSetValueExW(
                 hkey,
                 PCWSTR(name_w.as_ptr()),
-                0,
+                None,
                 REG_DWORD,
                 Some(&bytes),
             )
@@ -81,7 +81,7 @@ mod win {
             RegSetValueExW(
                 hkey,
                 PCWSTR(name_w.as_ptr()),
-                0,
+                None,
                 REG_SZ,
                 Some(bytes),
             )
