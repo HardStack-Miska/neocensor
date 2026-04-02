@@ -38,17 +38,19 @@ impl ConfigGenerator {
                 "servers": [
                     {
                         "tag": "proxy-dns",
-                        "address": settings.dns.proxy_dns,
+                        "type": "https",
+                        "server": "8.8.8.8",
                         "detour": "proxy",
                     },
                     {
                         "tag": "direct-dns",
-                        "address": settings.dns.direct_dns,
+                        "type": "udp",
+                        "server": settings.dns.direct_dns,
                         "detour": "direct",
                     },
                     {
                         "tag": "block-dns",
-                        "address": "rcode://success",
+                        "type": "fakeip",
                     },
                 ],
                 "rules": [
@@ -67,15 +69,12 @@ impl ConfigGenerator {
                     "auto_route": true,
                     "strict_route": true,
                     "stack": "system",
-                    "sniff": true,
-                    "sniff_override_destination": false,
                 },
                 {
                     "type": "mixed",
                     "tag": "mixed-in",
-                    "listen": "127.0.0.1",
+                    "listen": "::",
                     "listen_port": settings.mixed_port,
-                    "sniff": true,
                 },
             ],
             "outbounds": [
@@ -188,6 +187,8 @@ fn build_vless_outbound(server: &ServerConfig) -> Result<serde_json::Value> {
 /// Build route rules array including per-app process_name rules.
 fn build_route_rules(routes: &[AppRoute], _default_mode: RouteMode) -> Vec<serde_json::Value> {
     let mut rules = vec![
+        // Sniff all inbound traffic (replaces legacy "sniff": true in inbounds)
+        json!({ "action": "sniff" }),
         // DNS hijack
         json!({ "protocol": "dns", "outbound": "dns-out" }),
         // Private IPs go direct
