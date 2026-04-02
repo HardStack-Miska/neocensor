@@ -46,16 +46,7 @@ impl ConfigGenerator {
                         "tag": "direct-dns",
                         "type": "udp",
                         "server": settings.dns.direct_dns,
-                        "detour": "direct",
                     },
-                    {
-                        "tag": "block-dns",
-                        "type": "fakeip",
-                    },
-                ],
-                "rules": [
-                    { "outbound": ["direct"], "server": "direct-dns" },
-                    { "outbound": ["block"], "server": "block-dns" },
                 ],
                 "final": "proxy-dns",
             },
@@ -64,7 +55,7 @@ impl ConfigGenerator {
                     "type": "tun",
                     "tag": "tun-in",
                     "interface_name": "NeoCensor",
-                    "address": ["172.19.0.1/30", "fdfe:dcba:9876::1/126"],
+                    "address": ["10.254.0.1/30"],
                     "mtu": 9000,
                     "auto_route": true,
                     "strict_route": true,
@@ -84,6 +75,7 @@ impl ConfigGenerator {
             ],
             "route": {
                 "auto_detect_interface": true,
+                "default_domain_resolver": "direct-dns",
                 "rules": route_rules,
                 "final": default_outbound,
             },
