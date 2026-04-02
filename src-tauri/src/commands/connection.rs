@@ -166,6 +166,19 @@ async fn connect_inner(
     }
     rb.singbox_started = true;
 
+    // Give sing-box a moment to start, then check if it crashed immediately
+    tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+    if !state.singbox.is_alive().await {
+        rb.rollback(state).await;
+        return Err(
+            "sing-box exited immediately. This usually means:\n\
+             - App not running as Administrator (TUN requires admin rights)\n\
+             - Another VPN/proxy is using the TUN adapter\n\
+             Check Logs tab for details."
+                .to_string(),
+        );
+    }
+
     // Wait for sing-box to bind ports
     tracing::info!("waiting for sing-box to bind ports");
     if let Err(e) = wait_for_singbox(settings.mixed_port).await {

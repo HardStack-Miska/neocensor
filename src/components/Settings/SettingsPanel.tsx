@@ -18,6 +18,7 @@ export const SettingsPanel = () => {
   const { dark, toggle } = useThemeStore();
   const { settings, fetchSettings, updateSettings } = useSettingsStore();
 
+  const [appVersion, setAppVersion] = useState('...');
   const [binaries, setBinaries] = useState<api.BinaryStatus | null>(null);
   const [versions, setVersions] = useState<api.ComponentVersions | null>(null);
   const [dlStatus, setDlStatus] = useState<DlStatus>('idle');
@@ -76,6 +77,9 @@ export const SettingsPanel = () => {
   useEffect(() => {
     fetchSettings();
     api.checkBinaries().then(setBinaries).catch(() => {});
+    import('@tauri-apps/api/app').then(({ getVersion }) =>
+      getVersion().then(setAppVersion)
+    ).catch(() => {});
   }, [fetchSettings]);
 
   // Listen for download progress events from backend
@@ -286,7 +290,7 @@ export const SettingsPanel = () => {
       <SettingsGroup title="Updates">
         <SettingsRow label="App version" description="Current installed version" last={updateStatus === 'idle' || updateStatus === 'uptodate' || updateStatus === 'checking'}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-            <span style={{ fontSize: 10.5, fontFamily: MONO, color: T.t1 }}>v0.3.1</span>
+            <span style={{ fontSize: 10.5, fontFamily: MONO, color: T.t1 }}>v{appVersion}</span>
             <SmallButton onClick={checkForUpdates} disabled={updateStatus === 'checking' || updateStatus === 'downloading'}>
               <RefreshCw size={10} style={updateStatus === 'checking' ? { animation: 'spin .7s linear infinite' } : {}} />
               {updateStatus === 'checking' ? 'Checking...' : 'Check'}
