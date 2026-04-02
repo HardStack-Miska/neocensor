@@ -5,6 +5,8 @@ use sha2::{Digest, Sha256};
 use tokio::io::AsyncWriteExt;
 
 /// Download and extract xray-core from GitHub releases.
+/// Kept for potential future use; sing-box is the primary engine now.
+#[allow(dead_code)]
 pub async fn download_xray(version: &str, dest: &Path) -> Result<PathBuf> {
     let asset = "Xray-windows-64.zip";
     let url = format!(
@@ -15,6 +17,23 @@ pub async fn download_xray(version: &str, dest: &Path) -> Result<PathBuf> {
     tracing::info!("downloading xray-core v{version} from {url}");
     let bin_path = download_and_extract_zip(&url, Some(&dgst_url), dest, "xray.exe").await?;
     tracing::info!("xray-core installed to {}", bin_path.display());
+    Ok(bin_path)
+}
+
+/// Download and extract sing-box from GitHub releases.
+pub async fn download_singbox(version: &str, dest: &Path) -> Result<PathBuf> {
+    let asset = format!("sing-box-{version}-windows-amd64.zip");
+    let url = format!(
+        "https://github.com/SagerNet/sing-box/releases/download/v{version}/{asset}"
+    );
+    // sing-box releases include checksums.txt
+    let dgst_url = format!(
+        "https://github.com/SagerNet/sing-box/releases/download/v{version}/sing-box-{version}-windows-amd64.zip.sha256"
+    );
+
+    tracing::info!("downloading sing-box v{version} from {url}");
+    let bin_path = download_and_extract_zip(&url, Some(&dgst_url), dest, "sing-box.exe").await?;
+    tracing::info!("sing-box installed to {}", bin_path.display());
     Ok(bin_path)
 }
 

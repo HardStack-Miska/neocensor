@@ -6,43 +6,44 @@ use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::process::{Child, Command};
 use tokio::sync::{Mutex, broadcast};
 
-/// Manages the xray-core child process lifecycle.
-pub struct XrayManager {
+/// Manages the sing-box child process lifecycle.
+pub struct SingboxManager {
     binary_path: PathBuf,
     config_path: PathBuf,
     child: Arc<Mutex<Option<Child>>>,
     log_sender: broadcast::Sender<String>,
 }
 
-impl XrayManager {
+impl SingboxManager {
     pub fn new(binary_path: PathBuf, config_dir: PathBuf) -> Self {
         let (log_sender, _) = broadcast::channel(1024);
         Self {
             binary_path,
-            config_path: config_dir.join("xray-config.json"),
+            config_path: config_dir.join("singbox-config.json"),
             child: Arc::new(Mutex::new(None)),
             log_sender,
         }
     }
 
-    /// Subscribe to xray-core log output.
+    /// Subscribe to sing-box log output.
     pub fn subscribe_logs(&self) -> broadcast::Receiver<String> {
         self.log_sender.subscribe()
     }
 
-    /// Write config and start xray-core.
+    /// Write config and start sing-box.
     pub async fn start(&self, config: &serde_json::Value) -> Result<()> {
         self.stop().await?;
 
         let config_str = serde_json::to_string_pretty(config)?;
         tokio::fs::write(&self.config_path, &config_str)
             .await
-            .context("failed to write xray config")?;
+            .context("failed to write sing-box config")?;
 
         let mut cmd = Command::new(&self.binary_path);
         cmd.arg("run")
-            .arg("-config")
+            .arg("-c")
             .arg(&self.config_path)
+            .arg("--disable-color")
             .stdout(std::process::Stdio::piped())
             .stderr(std::process::Stdio::piped())
             .kill_on_drop(true);
@@ -55,17 +56,22 @@ impl XrayManager {
             cmd.creation_flags(CREATE_NO_WINDOW);
         }
 
-        let mut child = cmd.spawn().context("failed to start xray-core")?;
+        let mut child = cmd.spawn().context("failed to start sing-box")?;
 
-        // Stream stderr to tracing + broadcast
+        // Stream stderr to tracing + broadcast (sing-box logs primarily to stderr)
         if let Some(stderr) = child.stderr.take() {
             let sender = self.log_sender.clone();
             tokio::spawn(async move {
                 let reader = BufReader::new(stderr);
                 let mut lines = reader.lines();
                 while let Ok(Some(line)) = lines.next_line().await {
-                    tracing::warn!("[xray] {line}");
-                    let _ = sender.send(format!("[xray] {line}"));
+                    // Downgrade noisy connection log lines to debug
+                    if line.contains("connection") {
+                        tracing::debug!("[sing-box] {line}");
+                    } else {
+                        tracing::info!("[sing-box] {line}");
+                    }
+                    let _ = sender.send(format!("[sing-box] {line}"));
                 }
             });
         }
@@ -77,29 +83,24 @@ impl XrayManager {
                 let reader = BufReader::new(stdout);
                 let mut lines = reader.lines();
                 while let Ok(Some(line)) = lines.next_line().await {
-                    // Downgrade expected connection-reset noise to debug
-                    if line.contains("connection ends") || line.contains("wsarecv") || line.contains("wsasend") {
-                        tracing::debug!("[xray] {line}");
-                    } else {
-                        tracing::info!("[xray] {line}");
-                    }
-                    let _ = sender.send(format!("[xray] {line}"));
+                    tracing::info!("[sing-box] {line}");
+                    let _ = sender.send(format!("[sing-box] {line}"));
                 }
             });
         }
 
         *self.child.lock().await = Some(child);
-        tracing::info!("xray-core started");
+        tracing::info!("sing-box started");
         Ok(())
     }
 
-    /// Stop xray-core gracefully and remove config file (contains credentials).
+    /// Stop sing-box gracefully and remove config file (contains credentials).
     pub async fn stop(&self) -> Result<()> {
         let mut guard = self.child.lock().await;
         if let Some(mut child) = guard.take() {
             child.kill().await.ok();
             child.wait().await.ok();
-            tracing::info!("xray-core stopped");
+            tracing::info!("sing-box stopped");
         }
         // Remove config file to avoid leaving credentials on disk
         tokio::fs::remove_file(&self.config_path).await.ok();
@@ -114,7 +115,7 @@ impl XrayManager {
         self.start(config).await
     }
 
-    /// Check if xray-core process is still running.
+    /// Check if sing-box process is still running.
     pub async fn is_alive(&self) -> bool {
         let mut guard = self.child.lock().await;
         if let Some(child) = guard.as_mut() {
@@ -131,7 +132,7 @@ impl XrayManager {
         }
     }
 
-    /// Get the path to the xray-core binary.
+    /// Get the path to the sing-box binary.
     pub fn binary_path(&self) -> &Path {
         &self.binary_path
     }

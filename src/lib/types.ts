@@ -115,9 +115,7 @@ export interface Settings {
   theme: string;
   language: string;
   log_level: string;
-  xray_socks_port: number;
-  xray_http_port: number;
-  system_proxy: boolean;
+  mixed_port: number;
   active_profile_id: string | null;
 }
 

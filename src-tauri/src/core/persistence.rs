@@ -207,8 +207,7 @@ mod tests {
         settings.language = "en".into();
         settings.kill_switch = false;
         settings.auto_connect = true;
-        settings.xray_socks_port = 12345;
-        settings.xray_http_port = 12346;
+        settings.mixed_port = 12345;
 
         store.save_settings(&settings).unwrap();
         let loaded = store.load_settings();
@@ -217,8 +216,7 @@ mod tests {
         assert_eq!(loaded.language, "en");
         assert!(!loaded.kill_switch);
         assert!(loaded.auto_connect);
-        assert_eq!(loaded.xray_socks_port, 12345);
-        assert_eq!(loaded.xray_http_port, 12346);
+        assert_eq!(loaded.mixed_port, 12345);
 
         cleanup(&dir);
     }

@@ -2,12 +2,10 @@ use std::sync::atomic::{AtomicU64, Ordering};
 
 use tokio::sync::{broadcast, Mutex};
 
-use crate::core::pac_server::PacServer;
 use crate::core::persistence::Store;
 use crate::core::process_monitor::ProcessMonitor;
+use crate::core::singbox::SingboxManager;
 use crate::core::traffic::ConnectionEvent;
-use crate::core::wfp::WfpManager;
-use crate::core::xray::XrayManager;
 use crate::models::{AppRoute, AppState, Profile, ServerEntry, Settings, Subscription};
 
 const MAX_CONNECTIONS: usize = 300;
@@ -23,10 +21,8 @@ const MAX_CONNECTIONS: usize = 300;
 ///  4. server_store
 ///  5. app_routes
 ///  6. subscriptions
-///  7. wfp
-///  8. process_monitor
-///  9. pac_server
-/// 10. connections
+///  7. process_monitor
+///  8. connections
 ///
 /// Clone + drop early locks before acquiring later ones when possible.
 pub struct ManagedState {
@@ -36,15 +32,11 @@ pub struct ManagedState {
     pub subscriptions: Mutex<Vec<Subscription>>,
     pub profiles: Mutex<Vec<Profile>>,
     pub settings: Mutex<Settings>,
-    pub xray: XrayManager,
+    pub singbox: SingboxManager,
     pub process_monitor: Mutex<ProcessMonitor>,
     pub store: Store,
     pub log_sender: broadcast::Sender<String>,
-    /// WFP per-process routing manager.
-    pub wfp: Mutex<WfpManager>,
-    /// PAC file server for proxy auto-config.
-    pub pac_server: Mutex<PacServer>,
-    /// Live parsed connections from xray logs.
+    /// Live parsed connections from sing-box logs.
     pub connections: Mutex<Vec<ConnectionEvent>>,
     /// Monotonic connection counter for unique IDs.
     pub conn_counter: AtomicU64,
@@ -52,7 +44,7 @@ pub struct ManagedState {
 
 impl ManagedState {
     pub fn new(
-        xray: XrayManager,
+        singbox: SingboxManager,
         store: Store,
         log_sender: broadcast::Sender<String>,
     ) -> Self {
@@ -80,9 +72,7 @@ impl ManagedState {
             subscriptions: Mutex::new(subscriptions),
             profiles: Mutex::new(profiles),
             settings: Mutex::new(settings),
-            xray,
-            wfp: Mutex::new(WfpManager::new()),
-            pac_server: Mutex::new(PacServer::new()),
+            singbox,
             process_monitor: Mutex::new(ProcessMonitor::new()),
             store,
             log_sender,

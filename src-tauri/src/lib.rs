@@ -16,32 +16,20 @@ pub fn run() {
     let log_dir = utils::logs_dir().expect("failed to determine log directory");
     let log_sender = core::logger::init_logging(&log_dir);
 
-    // Safety: unset system proxy on panic to avoid leaving proxy settings broken
-    let default_hook = std::panic::take_hook();
-    std::panic::set_hook(Box::new(move |info| {
-        let _ = core::system_proxy::unset_system_proxy();
-        default_hook(info);
-    }));
-
     tracing::info!("=== NeoCensor v0.1.0 starting ===");
     tracing::info!("log directory: {}", log_dir.display());
 
     let config_dir = utils::config_dir().expect("failed to determine config directory");
     let data_dir = utils::data_dir().expect("failed to determine data directory");
-    let xray_path = utils::xray_binary_path().expect("failed to determine xray binary path");
+    let singbox_path = utils::singbox_binary_path().expect("failed to determine sing-box binary path");
 
     tracing::info!("data directory: {}", data_dir.display());
-    tracing::info!("xray binary: {} (exists={})", xray_path.display(), xray_path.exists());
+    tracing::info!("sing-box binary: {} (exists={})", singbox_path.display(), singbox_path.exists());
 
-    let xray = core::XrayManager::new(xray_path, config_dir);
+    let singbox = core::SingboxManager::new(singbox_path, config_dir);
     let store = core::Store::new(data_dir);
 
-    // Clean up stale proxy settings from a previous crashed session
-    // Read port from saved settings (not hardcoded) so it works even if user changed it
-    let saved_settings = store.load_settings();
-    core::system_proxy::cleanup_stale_proxy(saved_settings.xray_http_port);
-
-    let state = ManagedState::new(xray, store, log_sender);
+    let state = ManagedState::new(singbox, store, log_sender);
 
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
@@ -80,9 +68,6 @@ pub fn run() {
             get_processes,
             // Traffic
             get_traffic_stats,
-            // WFP
-            check_admin,
-            is_wfp_active,
             // Download
             check_binaries,
             download_components,
@@ -106,7 +91,7 @@ pub fn run() {
                     std::fs::create_dir_all(&dir).ok();
                 }
             }
-            if let Ok(p) = utils::xray_binary_path() {
+            if let Ok(p) = utils::singbox_binary_path() {
                 if let Some(bin_dir) = p.parent() {
                     std::fs::create_dir_all(bin_dir).ok();
                 }
@@ -117,62 +102,62 @@ pub fn run() {
                 tracing::error!("failed to set up system tray: {e}");
             }
 
-            // Auto-download xray-core if missing
+            // Auto-download sing-box if missing
             let dl_handle = app.handle().clone();
             tauri::async_runtime::spawn(async move {
                 let state: tauri::State<'_, ManagedState> = dl_handle.state();
-                let xray_exists = state.xray.binary_path().exists();
+                let singbox_exists = state.singbox.binary_path().exists();
 
-                if xray_exists {
-                    tracing::info!("xray-core binary found");
+                if singbox_exists {
+                    tracing::info!("sing-box binary found");
                     return;
                 }
 
-                tracing::info!("xray-core missing, starting auto-download");
+                tracing::info!("sing-box missing, starting auto-download");
 
-                let bin_dir = match state.xray.binary_path().parent() {
+                let bin_dir = match state.singbox.binary_path().parent() {
                     Some(dir) => dir.to_path_buf(),
                     None => {
-                        tracing::error!("xray binary path has no parent directory");
+                        tracing::error!("sing-box binary path has no parent directory");
                         return;
                     }
                 };
                 std::fs::create_dir_all(&bin_dir).ok();
 
                 let _ = dl_handle.emit("download-progress", serde_json::json!({
-                    "component": "xray-core", "status": "downloading"
+                    "component": "sing-box", "status": "downloading"
                 }));
 
-                let version = core::downloader::check_latest_version("XTLS/Xray-core")
+                let version = core::downloader::check_latest_version("SagerNet/sing-box")
                     .await
-                    .unwrap_or_else(|_| "25.3.6".into());
+                    .unwrap_or_else(|_| "1.11.0".into());
 
                 match tokio::time::timeout(
                     std::time::Duration::from_secs(300),
-                    core::downloader::download_xray(&version, &bin_dir),
+                    core::downloader::download_singbox(&version, &bin_dir),
                 ).await {
                     Ok(Ok(_)) => {
-                        tracing::info!("xray-core v{version} downloaded successfully");
+                        tracing::info!("sing-box v{version} downloaded successfully");
                         let _ = dl_handle.emit("download-progress", serde_json::json!({
-                            "component": "xray-core", "status": "installed"
+                            "component": "sing-box", "status": "installed"
                         }));
                     }
                     Ok(Err(e)) => {
-                        tracing::error!("xray-core download failed: {e}");
+                        tracing::error!("sing-box download failed: {e}");
                         let _ = dl_handle.emit("download-progress", serde_json::json!({
-                            "component": "xray-core", "status": "failed", "error": e.to_string()
+                            "component": "sing-box", "status": "failed", "error": e.to_string()
                         }));
                     }
                     Err(_) => {
-                        tracing::error!("xray-core download timed out after 5 minutes");
+                        tracing::error!("sing-box download timed out after 5 minutes");
                         let _ = dl_handle.emit("download-progress", serde_json::json!({
-                            "component": "xray-core", "status": "timeout"
+                            "component": "sing-box", "status": "timeout"
                         }));
                     }
                 }
             });
 
-            // Parse xray log lines into connection events and emit to frontend
+            // Parse sing-box log lines into connection events and emit to frontend
             let traffic_handle = app.handle().clone();
             tauri::async_runtime::spawn(async move {
                 let state: tauri::State<'_, ManagedState> = traffic_handle.state();
@@ -181,11 +166,10 @@ pub fn run() {
                 loop {
                     match rx.recv().await {
                         Ok(line) => {
-                            // Only parse [xray] lines containing "accepted"
-                            // Note: log_sender receives tracing-formatted lines with timestamp prefix
-                            if line.contains("[xray]") && line.contains(" accepted ") {
+                            // Parse sing-box router log lines
+                            if line.contains("[sing-box]") && line.contains("inbound") && line.contains("outbound") {
                                 let id = state.next_conn_id();
-                                if let Some(event) = core::traffic::parse_xray_connection(&line, id) {
+                                if let Some(event) = core::traffic::parse_singbox_connection(&line, id) {
                                     let _ = traffic_handle.emit("connection-event", &event);
                                     state.push_connection(event).await;
                                 }
@@ -213,8 +197,7 @@ pub fn run() {
         .expect("error while building NeoCensor")
         .run(|_app_handle, event| {
             if let tauri::RunEvent::Exit = event {
-                tracing::info!("app exiting, cleaning up system proxy");
-                let _ = core::system_proxy::unset_system_proxy();
+                tracing::info!("app exiting");
             }
         });
 }

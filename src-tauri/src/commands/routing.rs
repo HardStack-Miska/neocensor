@@ -1,7 +1,8 @@
 use tauri::State;
 
 use crate::app_state::ManagedState;
-use crate::models::{AppRoute, Profile, RouteMode};
+use crate::core::config_gen::ConfigGenerator;
+use crate::models::{AppRoute, ConnectionStatus, Profile, RouteMode};
 
 #[tauri::command]
 pub async fn get_app_routes(state: State<'_, ManagedState>) -> Result<Vec<AppRoute>, String> {
@@ -16,36 +17,18 @@ pub async fn set_app_route(
     display_name: String,
     mode: RouteMode,
 ) -> Result<(), String> {
-    // Lock order: app_routes (5) then process_monitor (8) — but not simultaneously.
-    // Check if route exists first, resolve process info separately if needed.
-    let needs_new_route = {
+    {
         let mut routes = state.app_routes.lock().await;
         if let Some(route) = routes.iter_mut().find(|r| r.process_name == process_name) {
             route.mode = mode;
-            false
         } else {
-            true
-        }
-    };
-    if needs_new_route {
-        let (category, exe_path) = {
-            let mut monitor = state.process_monitor.lock().await;
-            let category = monitor.category(&process_name);
-            let exe_path = crate::core::wfp::manager::resolve_exe_for_route(
-                &process_name,
-                &mut monitor,
-            );
-            (category, exe_path)
-        };
-        let mut routes = state.app_routes.lock().await;
-        // Double-check it wasn't added by a concurrent call
-        if !routes.iter().any(|r| r.process_name == process_name) {
-            let mut route = AppRoute::new(&process_name, mode)
+            let category = {
+                let mut monitor = state.process_monitor.lock().await;
+                monitor.category(&process_name)
+            };
+            let route = AppRoute::new(&process_name, mode)
                 .with_display_name(&display_name)
                 .with_category(category);
-            if let Some(path) = exe_path {
-                route = route.with_exe_path(path);
-            }
             routes.push(route);
         }
     }
@@ -57,9 +40,8 @@ pub async fn set_app_route(
     );
     sync_routes_to_profile(&state).await;
 
-    // Re-apply WFP rules if connected, then force browsers to re-read proxy
-    reapply_wfp_rules(&state).await;
-    refresh_proxy_settings(&state).await;
+    // Restart sing-box with updated routes if connected
+    restart_singbox_with_routes(&state).await;
 
     Ok(())
 }
@@ -80,9 +62,8 @@ pub async fn remove_app_route(
     );
     sync_routes_to_profile(&state).await;
 
-    // Re-apply WFP rules if connected, then force browsers to re-read proxy
-    reapply_wfp_rules(&state).await;
-    refresh_proxy_settings(&state).await;
+    // Restart sing-box with updated routes if connected
+    restart_singbox_with_routes(&state).await;
 
     Ok(())
 }
@@ -153,12 +134,8 @@ pub async fn set_active_profile(
     state.persist_routes().await;
     state.persist_settings().await;
 
-    // Re-apply WFP rules if connected
-    reapply_wfp_rules(&state).await;
-
-    // Force browsers to re-read proxy settings after profile switch
-    // This fixes the issue where Brave caches "proxy unreachable" from Direct mode
-    refresh_proxy_settings(&state).await;
+    // Restart sing-box with new profile routes if connected
+    restart_singbox_with_routes(&state).await;
 
     Ok(())
 }
@@ -185,111 +162,59 @@ pub async fn update_settings(
     Ok(())
 }
 
-#[tauri::command]
-pub async fn check_admin(
-) -> Result<bool, String> {
-    Ok(crate::core::wfp::is_admin())
-}
-
-#[tauri::command]
-pub async fn is_wfp_active(
-    state: State<'_, ManagedState>,
-) -> Result<bool, String> {
-    let wfp = state.wfp.lock().await;
-    Ok(wfp.is_active())
-}
-
-/// Re-apply WFP rules if VPN is connected.
-/// Uses TCP reset technique: temporarily blocks all traffic for affected apps,
-/// waits for connections to die, then applies the real rules.
-/// This forces Chromium browsers to re-establish connections with new proxy settings.
-async fn reapply_wfp_rules(state: &ManagedState) {
-    // Lock order: settings (1) → profiles (2) → app_state (3) → app_routes (5) → wfp (7) → process_monitor (8)
-    // Clone and drop early locks before acquiring later ones.
-    let settings = state.settings.lock().await.clone();
-
+/// Restart sing-box with current routes if VPN is connected.
+async fn restart_singbox_with_routes(state: &ManagedState) {
     let is_connected = {
         let app_state = state.app_state.lock().await;
-        app_state.status == crate::models::ConnectionStatus::Connected
+        app_state.status == ConnectionStatus::Connected
     };
 
     if !is_connected {
         return;
     }
 
+    let settings = state.settings.lock().await.clone();
+
     let default_mode = {
         let profiles = state.profiles.lock().await;
         let app_state = state.app_state.lock().await;
-        let mode = app_state
+        app_state
             .active_profile_id
             .as_ref()
             .and_then(|pid| profiles.iter().find(|p| &p.id == pid))
             .map(|p| p.default_mode)
-            .unwrap_or(RouteMode::Direct);
-        mode
+            .unwrap_or(RouteMode::Direct)
     };
 
     let routes = state.app_routes.lock().await.clone();
-    let proxy_port = settings.xray_http_port;
 
-    // Build exe map once (single process scan) for all phases
-    let exe_map = {
-        let mut monitor = state.process_monitor.lock().await;
-        monitor.build_exe_map()
-    };
+    // Find active server config
+    let server = {
+        let app_state = state.app_state.lock().await;
+        let server_id = match app_state.active_server_id {
+            Some(id) => id,
+            None => return,
+        };
+        drop(app_state);
 
-    // Phase 1: Remove old filters and add temporary BLOCK ALL to kill TCP connections
-    let resets = {
-        let mut wfp = state.wfp.lock().await;
-        if !wfp.is_active() {
-            return;
-        }
-        match wfp.apply_temporary_blocks_only(&routes, &exe_map) {
-            Ok(r) => r,
-            Err(e) => {
-                tracing::warn!("temp blocks failed: {e}, applying rules directly");
-                let _ = wfp.apply_rules(&routes, default_mode, proxy_port, &exe_map);
-                return;
-            }
+        let store = state.server_store.lock().await;
+        match store.iter().find(|s| s.config.id == server_id) {
+            Some(entry) => entry.config.clone(),
+            None => return,
         }
     };
 
-    if !resets.is_empty() {
-        // Phase 2: Wait for Chromium to notice connections are dead
-        tracing::info!(
-            "TCP reset: blocking {} apps for 700ms to kill keepalive connections",
-            resets.len()
-        );
-        tokio::time::sleep(std::time::Duration::from_millis(700)).await;
-    }
-
-    // Phase 3: Remove temp blocks and apply real rules
-    {
-        let mut wfp = state.wfp.lock().await;
-        wfp.remove_temp_blocks(&resets);
-        if let Err(e) = wfp.apply_rules(&routes, default_mode, proxy_port, &exe_map) {
-            tracing::error!("WFP apply_rules failed after reset: {e}");
-        }
-        tracing::info!("WFP rules applied after TCP reset");
-    }
-
-    // Persist discovered exe_paths back to routes
-    {
-        let mut updated = false;
-        let mut stored_routes = state.app_routes.lock().await;
-        for route in stored_routes.iter_mut() {
-            if route.exe_path.is_some() {
-                continue;
-            }
-            if let Some(path) = exe_map.get(&route.process_name.to_lowercase()) {
-                tracing::debug!("persisting discovered exe_path for {}: {}", route.process_name, path);
-                route.exe_path = Some(path.clone());
-                updated = true;
+    // Generate new config and restart
+    match ConfigGenerator::generate_singbox_config(&server, &settings, &routes, default_mode) {
+        Ok(config) => {
+            if let Err(e) = state.singbox.restart(&config).await {
+                tracing::error!("sing-box restart failed: {e}");
+            } else {
+                tracing::info!("sing-box restarted with updated routes");
             }
         }
-        drop(stored_routes);
-        if updated {
-            state.persist_routes().await;
+        Err(e) => {
+            tracing::error!("sing-box config generation failed on restart: {e}");
         }
     }
 }
@@ -321,28 +246,4 @@ async fn sync_routes_to_profile(state: &ManagedState) {
     } else {
         tracing::debug!("sync_routes_to_profile: no active profile, skipping");
     }
-}
-
-/// Notify browsers that proxy settings should be re-read.
-/// Uses InternetSetOption to signal change without modifying registry
-/// (avoids WSL "proxy changed" notification spam).
-/// Combined with TCP reset via WFP, this forces Chromium to reconnect.
-async fn refresh_proxy_settings(state: &ManagedState) {
-    let is_connected = {
-        let app_state = state.app_state.lock().await;
-        app_state.status == crate::models::ConnectionStatus::Connected
-    };
-
-    if !is_connected {
-        return;
-    }
-
-    let settings = state.settings.lock().await;
-    if !settings.system_proxy {
-        return;
-    }
-    drop(settings);
-
-    tracing::info!("notifying browsers of proxy settings change");
-    crate::core::system_proxy::notify_proxy_refresh();
 }

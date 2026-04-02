@@ -61,19 +61,17 @@ export const SettingsPanel = () => {
     }
   };
 
-  // Local state for text inputs — save on blur, not every keystroke
-  const [localSocks, setLocalSocks] = useState(String(settings.xray_socks_port));
-  const [localHttp, setLocalHttp] = useState(String(settings.xray_http_port));
+  // Local state for text inputs -- save on blur, not every keystroke
+  const [localMixedPort, setLocalMixedPort] = useState(String(settings.mixed_port));
   const [localProxyDns, setLocalProxyDns] = useState(settings.dns.proxy_dns);
   const [localDirectDns, setLocalDirectDns] = useState(settings.dns.direct_dns);
 
   // Sync local state when settings load from backend
   useEffect(() => {
-    setLocalSocks(String(settings.xray_socks_port));
-    setLocalHttp(String(settings.xray_http_port));
+    setLocalMixedPort(String(settings.mixed_port));
     setLocalProxyDns(settings.dns.proxy_dns);
     setLocalDirectDns(settings.dns.direct_dns);
-  }, [settings.xray_socks_port, settings.xray_http_port, settings.dns.proxy_dns, settings.dns.direct_dns]);
+  }, [settings.mixed_port, settings.dns.proxy_dns, settings.dns.direct_dns]);
 
   useEffect(() => {
     fetchSettings();
@@ -91,7 +89,7 @@ export const SettingsPanel = () => {
         setDlStatus('downloading');
       } else if (status === 'installed') {
         setDlStatus('installed');
-        toast.success('xray-core installed successfully');
+        toast.success('sing-box installed successfully');
         api.checkBinaries().then(setBinaries).catch(() => {});
       } else if (status === 'failed') {
         setDlStatus('failed');
@@ -125,17 +123,15 @@ export const SettingsPanel = () => {
       await api.downloadComponents();
       const b = await api.checkBinaries();
       setBinaries(b);
-      if (b.xray_installed) setDlStatus('installed');
+      if (b.singbox_installed) setDlStatus('installed');
     } catch (e) {
       setDlStatus('failed');
       toast.error(`Download failed: ${e}`);
     }
   };
 
-  const validatePorts = useCallback((socks: number, http: number) => {
-    if (socks < 1024 || socks > 65535) return 'SOCKS port out of range (1024-65535)';
-    if (http < 1024 || http > 65535) return 'HTTP port out of range (1024-65535)';
-    if (socks === http) return 'Ports must be different';
+  const validatePort = useCallback((port: number) => {
+    if (port < 1024 || port > 65535) return 'Port out of range (1024-65535)';
     return '';
   }, []);
 
@@ -145,26 +141,22 @@ export const SettingsPanel = () => {
   ) => {
     const next = { ...settings, [key]: value };
 
-    // Validate ports before saving
-    if (key === 'xray_socks_port' || key === 'xray_http_port') {
-      const err = validatePorts(
-        key === 'xray_socks_port' ? (value as number) : next.xray_socks_port,
-        key === 'xray_http_port' ? (value as number) : next.xray_http_port,
-      );
+    // Validate port before saving
+    if (key === 'mixed_port') {
+      const err = validatePort(value as number);
       setPortError(err);
-      if (err) return; // Don't save invalid settings
+      if (err) return;
     }
 
     updateSettings(next);
   };
 
-  const savePortsOnBlur = () => {
-    const socks = parseInt(localSocks, 10) || settings.xray_socks_port;
-    const http = parseInt(localHttp, 10) || settings.xray_http_port;
-    const err = validatePorts(socks, http);
+  const savePortOnBlur = () => {
+    const port = parseInt(localMixedPort, 10) || settings.mixed_port;
+    const err = validatePort(port);
     setPortError(err);
     if (err) return;
-    updateSettings({ ...settings, xray_socks_port: socks, xray_http_port: http });
+    updateSettings({ ...settings, mixed_port: port });
   };
 
   const saveDnsOnBlur = () => {
@@ -220,12 +212,6 @@ export const SettingsPanel = () => {
 
       {/* Connection */}
       <SettingsGroup title="Connection">
-        <SettingsRow label="System proxy" description="Auto-configure Windows proxy">
-          <Toggle
-            value={settings.system_proxy}
-            onChange={(v) => updateSetting('system_proxy', v)}
-          />
-        </SettingsRow>
         <SettingsRow label="Kill Switch" description="Block traffic if VPN drops">
           <Toggle
             value={settings.kill_switch}
@@ -238,27 +224,16 @@ export const SettingsPanel = () => {
             onChange={(v) => updateSetting('auto_connect', v)}
           />
         </SettingsRow>
-        <SettingsRow label="SOCKS5 port" description="Local proxy port">
-          <input
-            type="number"
-            min={1024}
-            max={65535}
-            value={localSocks}
-            onChange={(e) => setLocalSocks(e.target.value)}
-            onBlur={savePortsOnBlur}
-            style={portInputStyle(portError.includes('SOCKS'))}
-          />
-        </SettingsRow>
-        <SettingsRow label="HTTP port" description="HTTP proxy port" last>
+        <SettingsRow label="Mixed port" description="Local proxy port (HTTP+SOCKS5)" last>
           <div>
             <input
               type="number"
               min={1024}
               max={65535}
-              value={localHttp}
-              onChange={(e) => setLocalHttp(e.target.value)}
-              onBlur={savePortsOnBlur}
-              style={portInputStyle(portError.includes('HTTP') || portError.includes('different'))}
+              value={localMixedPort}
+              onChange={(e) => setLocalMixedPort(e.target.value)}
+              onBlur={savePortOnBlur}
+              style={portInputStyle(!!portError)}
             />
             {portError && (
               <div style={{ fontSize: 9, color: T.er, marginTop: 3 }}>{portError}</div>
@@ -348,12 +323,12 @@ export const SettingsPanel = () => {
 
       {/* Components */}
       <SettingsGroup title="Components">
-        <SettingsRow label="xray-core" description="VLESS proxy engine">
+        <SettingsRow label="sing-box" description="TUN proxy engine (VLESS + routing)">
           <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-            {binaries?.xray_installed ? (
+            {binaries?.singbox_installed ? (
               <span style={{ fontSize: 10.5, color: T.ok, fontFamily: MONO, display: 'flex', alignItems: 'center', gap: 3 }}>
                 <CheckCircle size={10} />
-                {versions?.xray_latest ? `v${versions.xray_latest}` : 'installed'}
+                {versions?.singbox_latest ? `v${versions.singbox_latest}` : 'installed'}
               </span>
             ) : (
               <span style={{ fontSize: 10.5, color: T.er, display: 'flex', alignItems: 'center', gap: 3 }}>
@@ -367,8 +342,8 @@ export const SettingsPanel = () => {
           </div>
         </SettingsRow>
 
-        {binaries !== null && !binaries.xray_installed && (
-          <SettingsRow label="Download" description="Install xray-core" last>
+        {binaries !== null && !binaries.singbox_installed && (
+          <SettingsRow label="Download" description="Install sing-box" last>
             <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
               {dlStatus === 'downloading' && (
                 <span style={{ fontSize: 10, color: T.t2, display: 'flex', alignItems: 'center', gap: 4 }}>

@@ -107,11 +107,11 @@ export const getTrafficStats = () =>
 
 // Download/component commands
 export interface BinaryStatus {
-  xray_installed: boolean;
+  singbox_installed: boolean;
 }
 
 export interface ComponentVersions {
-  xray_latest: string;
+  singbox_latest: string;
 }
 
 export const checkBinaries = () =>
@@ -122,11 +122,6 @@ export const downloadComponents = () =>
 
 export const checkLatestVersions = () =>
   invoke<ComponentVersions>('check_latest_versions');
-
-// WFP commands
-export const checkAdmin = () => invoke<boolean>('check_admin');
-
-export const isWfpActive = () => invoke<boolean>('is_wfp_active');
 
 // Log commands
 export const startLogStream = () => invoke<void>('start_log_stream');

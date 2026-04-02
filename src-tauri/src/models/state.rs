@@ -1,10 +1,6 @@
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-fn default_xray_api_port() -> u16 {
-    10813
-}
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum ConnectionStatus {
@@ -92,6 +88,10 @@ impl Default for DnsSettings {
     }
 }
 
+fn default_mixed_port() -> u16 {
+    2080
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Settings {
     pub dns: DnsSettings,
@@ -102,31 +102,19 @@ pub struct Settings {
     pub theme: String,
     pub language: String,
     pub log_level: String,
-    pub xray_socks_port: u16,
-    pub xray_http_port: u16,
-    #[serde(default = "default_xray_api_port")]
-    pub xray_api_port: u16,
-    pub system_proxy: bool,
+    #[serde(default = "default_mixed_port")]
+    pub mixed_port: u16,
     #[serde(default)]
     pub active_profile_id: Option<String>,
 }
 
 impl Settings {
     pub fn validate(&self) -> Result<(), String> {
-        for (name, port) in [
-            ("SOCKS", self.xray_socks_port),
-            ("HTTP", self.xray_http_port),
-            ("API", self.xray_api_port),
-        ] {
-            if port < 1024 || port > 65535 {
-                return Err(format!("{name} port {port} out of range 1024-65535"));
-            }
-        }
-        if self.xray_socks_port == self.xray_http_port
-            || self.xray_socks_port == self.xray_api_port
-            || self.xray_http_port == self.xray_api_port
-        {
-            return Err("Port numbers must be unique".into());
+        if self.mixed_port < 1024 || self.mixed_port > 65535 {
+            return Err(format!(
+                "Mixed port {} out of range 1024-65535",
+                self.mixed_port
+            ));
         }
         Ok(())
     }
@@ -143,10 +131,7 @@ impl Default for Settings {
             theme: "dark".into(),
             language: "ru".into(),
             log_level: "warn".into(),
-            xray_socks_port: 10808,
-            xray_http_port: 10809,
-            xray_api_port: 10813,
-            system_proxy: true,
+            mixed_port: 2080,
             active_profile_id: None,
         }
     }

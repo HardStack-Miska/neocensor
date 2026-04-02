@@ -38,12 +38,12 @@ pub async fn ensure_dirs() -> Result<()> {
     Ok(())
 }
 
-/// Get the path where xray-core binary should be.
-pub fn xray_binary_path() -> Result<PathBuf> {
+/// Get the path where sing-box binary should be.
+pub fn singbox_binary_path() -> Result<PathBuf> {
     let dir = data_dir()?.join("bin");
     #[cfg(windows)]
-    let name = "xray.exe";
+    let name = "sing-box.exe";
     #[cfg(not(windows))]
-    let name = "xray";
+    let name = "sing-box";
     Ok(dir.join(name))
 }

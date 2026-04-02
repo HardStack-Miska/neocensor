@@ -14,8 +14,6 @@ import {
   Terminal,
   Gamepad2,
   Cpu,
-  ShieldCheck,
-  ShieldAlert,
 } from 'lucide-react';
 import { useThemeStore } from '../../stores/themeStore';
 import { useRoutingStore } from '../../stores/routingStore';
@@ -25,7 +23,6 @@ import { StatCard } from '../common/StatCard';
 import { MONO, SANS, modeColor, modeBg } from '../../lib/theme';
 import type { RouteMode, AppRoute, RunningProcess } from '../../lib/types';
 import type { LucideIcon } from 'lucide-react';
-import * as api from '../../lib/tauri';
 
 const MODE_ORDER: RouteMode[] = ['proxy', 'direct', 'auto', 'block'];
 const MODE_LABELS: Record<RouteMode, string> = {
@@ -60,21 +57,10 @@ export const RoutingPanel = () => {
   const killSwitch = useSettingsStore((s) => s.settings.kill_switch);
   const [query, setQuery] = useState('');
   const [showAdd, setShowAdd] = useState(false);
-  const [isAdmin, setIsAdmin] = useState<boolean | null>(null);
-  const [wfpActive, setWfpActive] = useState(false);
 
   useEffect(() => {
     fetchRoutes();
-    api.checkAdmin().then(setIsAdmin).catch(() => {});
   }, [fetchRoutes]);
-
-  useEffect(() => {
-    if (status === 'connected') {
-      api.isWfpActive().then(setWfpActive).catch(() => {});
-    } else {
-      setWfpActive(false);
-    }
-  }, [status]);
 
   const visible = useMemo(
     () =>
@@ -111,7 +97,7 @@ export const RoutingPanel = () => {
       rules: `${routes.length}`,
       killSwitch: killSwitch ? 'On' : 'Off',
     };
-  }, [routes]);
+  }, [routes, killSwitch]);
 
   return (
     <div style={{ flex: 1, overflowY: 'auto', padding: '16px 20px', fontFamily: SANS }}>
@@ -132,7 +118,7 @@ export const RoutingPanel = () => {
         <input
           value={query}
           onChange={(e) => setQuery(e.target.value)}
-          placeholder="Filter apps…"
+          placeholder="Filter apps..."
           style={{
             width: '100%',
             padding: '7px 10px 7px 30px',
@@ -272,42 +258,30 @@ export const RoutingPanel = () => {
         )}
       </div>
 
-      {/* WFP status indicator */}
+      {/* Routing status indicator */}
       <div
         style={{
           padding: '8px 12px',
           marginTop: 8,
           borderRadius: 6,
-          background: wfpActive ? T.okS : isAdmin === false ? T.erS : T.bg2,
+          background: status === 'connected' ? T.okS : T.bg2,
           fontSize: 10,
-          color: wfpActive ? T.ok : isAdmin === false ? T.er : T.t3,
+          color: status === 'connected' ? T.ok : T.t3,
           lineHeight: 1.5,
           display: 'flex',
           alignItems: 'center',
           gap: 6,
         }}
       >
-        {wfpActive ? (
-          <>
-            <ShieldCheck size={12} />
-            WFP per-process routing active. Block and Direct rules are enforced.
-            Proxy mode uses system proxy.
-          </>
-        ) : isAdmin === false ? (
-          <>
-            <ShieldAlert size={12} />
-            Run as Administrator to enable per-process routing (Block/Direct).
-            Currently all traffic uses system proxy.
-          </>
-        ) : status === 'connected' ? (
+        {status === 'connected' ? (
           <>
             <Shield size={12} />
-            Per-process routing active. Block and Direct rules are enforced.
+            TUN routing active. Per-app rules are enforced via sing-box process_name matching.
           </>
         ) : (
           <>
             <Shield size={12} />
-            Connect to a server to activate per-process routing rules.
+            Connect to a server to activate per-app routing rules.
           </>
         )}
       </div>
@@ -351,7 +325,7 @@ export const RoutingPanel = () => {
         />
       )}
 
-      {/* Mode dropdown portal — rendered outside overflow:hidden container */}
+      {/* Mode dropdown portal -- rendered outside overflow:hidden container */}
       {dropdown &&
         createPortal(
           <ModeDropdown
@@ -371,7 +345,7 @@ export const RoutingPanel = () => {
   );
 };
 
-/* ── Mode dropdown (rendered via portal to escape overflow:hidden) ── */
+/* -- Mode dropdown (rendered via portal to escape overflow:hidden) -- */
 
 interface ModeDropdownProps {
   rect: DOMRect;
@@ -464,7 +438,7 @@ const ModeDropdown = ({ rect, currentMode, onPick, onClose }: ModeDropdownProps)
   );
 };
 
-/* ── Add process overlay ── */
+/* -- Add process overlay -- */
 
 interface AddProcessOverlayProps {
   processes: RunningProcess[];
@@ -564,7 +538,7 @@ const AddProcessOverlay = ({ processes, onAdd, onClose }: AddProcessOverlayProps
             <input
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              placeholder="Search running processes…"
+              placeholder="Search running processes..."
               autoFocus
               style={{
                 flex: 1,

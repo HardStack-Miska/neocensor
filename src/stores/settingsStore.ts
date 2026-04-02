@@ -23,9 +23,7 @@ const defaultSettings: Settings = {
   theme: 'dark',
   language: 'ru',
   log_level: 'warn',
-  xray_socks_port: 10808,
-  xray_http_port: 10809,
-  system_proxy: true,
+  mixed_port: 2080,
   active_profile_id: null,
 };
 
