@@ -81,7 +81,6 @@ impl ConfigGenerator {
                 vless_outbound,
                 { "type": "direct", "tag": "direct" },
                 { "type": "block", "tag": "block" },
-                { "type": "dns", "tag": "dns-out" },
             ],
             "route": {
                 "auto_detect_interface": true,
@@ -189,8 +188,8 @@ fn build_route_rules(routes: &[AppRoute], _default_mode: RouteMode) -> Vec<serde
     let mut rules = vec![
         // Sniff all inbound traffic (replaces legacy "sniff": true in inbounds)
         json!({ "action": "sniff" }),
-        // DNS hijack
-        json!({ "protocol": "dns", "outbound": "dns-out" }),
+        // DNS hijack (replaces legacy dns outbound)
+        json!({ "protocol": "dns", "action": "hijack-dns" }),
         // Private IPs go direct
         json!({ "ip_is_private": true, "outbound": "direct" }),
     ];
