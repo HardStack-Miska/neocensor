@@ -132,3 +132,6 @@ export const isWfpActive = () => invoke<boolean>('is_wfp_active');
 export const startLogStream = () => invoke<void>('start_log_stream');
 
 export const getLogPath = () => invoke<string>('get_log_path');
+
+// Updater
+export const getVersion = () => invoke<string>('get_app_version').catch(() => '0.1.0');

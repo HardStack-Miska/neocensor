@@ -1,6 +1,8 @@
 import { useEffect, useState, useCallback } from 'react';
-import { RefreshCw, Download, AlertCircle, CheckCircle, XCircle } from 'lucide-react';
+import { RefreshCw, Download, AlertCircle, CheckCircle, XCircle, ArrowUpCircle } from 'lucide-react';
 import { listen } from '@tauri-apps/api/event';
+import { check } from '@tauri-apps/plugin-updater';
+import { relaunch } from '@tauri-apps/plugin-process';
 import { useThemeStore } from '../../stores/themeStore';
 import { useSettingsStore } from '../../stores/settingsStore';
 import { Toggle } from '../common/Toggle';
@@ -21,6 +23,43 @@ export const SettingsPanel = () => {
   const [dlStatus, setDlStatus] = useState<DlStatus>('idle');
   const [checkingVersions, setCheckingVersions] = useState(false);
   const [portError, setPortError] = useState('');
+
+  // Updater state
+  type UpdateStatus = 'idle' | 'checking' | 'available' | 'downloading' | 'ready' | 'uptodate' | 'error';
+  const [updateStatus, setUpdateStatus] = useState<UpdateStatus>('idle');
+  const [updateVersion, setUpdateVersion] = useState('');
+
+  const checkForUpdates = async () => {
+    setUpdateStatus('checking');
+    try {
+      const update = await check();
+      if (update) {
+        setUpdateVersion(update.version);
+        setUpdateStatus('available');
+      } else {
+        setUpdateStatus('uptodate');
+        toast.success('You are on the latest version');
+      }
+    } catch (e) {
+      setUpdateStatus('error');
+      toast.error(`Update check failed: ${e}`);
+    }
+  };
+
+  const installUpdate = async () => {
+    setUpdateStatus('downloading');
+    try {
+      const update = await check();
+      if (!update) return;
+      await update.downloadAndInstall();
+      setUpdateStatus('ready');
+      toast.success('Update installed. Restarting...');
+      setTimeout(() => relaunch(), 1500);
+    } catch (e) {
+      setUpdateStatus('error');
+      toast.error(`Update failed: ${e}`);
+    }
+  };
 
   // Local state for text inputs — save on blur, not every keystroke
   const [localSocks, setLocalSocks] = useState(String(settings.xray_socks_port));
@@ -266,6 +305,45 @@ export const SettingsPanel = () => {
             }}
           />
         </SettingsRow>
+      </SettingsGroup>
+
+      {/* Updates */}
+      <SettingsGroup title="Updates">
+        <SettingsRow label="App version" description="Current installed version" last={updateStatus === 'idle' || updateStatus === 'uptodate' || updateStatus === 'checking'}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <span style={{ fontSize: 10.5, fontFamily: MONO, color: T.t1 }}>v0.1.0</span>
+            <SmallButton onClick={checkForUpdates} disabled={updateStatus === 'checking' || updateStatus === 'downloading'}>
+              <RefreshCw size={10} style={updateStatus === 'checking' ? { animation: 'spin .7s linear infinite' } : {}} />
+              {updateStatus === 'checking' ? 'Checking...' : 'Check'}
+            </SmallButton>
+          </div>
+        </SettingsRow>
+        {updateStatus === 'available' && (
+          <SettingsRow label={`v${updateVersion} available`} description="New version ready to install" last>
+            <SmallButton onClick={installUpdate}>
+              <ArrowUpCircle size={10} />
+              Update now
+            </SmallButton>
+          </SettingsRow>
+        )}
+        {updateStatus === 'downloading' && (
+          <SettingsRow label="Updating..." description="Downloading and installing" last>
+            <Download size={12} style={{ animation: 'spin .7s linear infinite', color: T.ac }} />
+          </SettingsRow>
+        )}
+        {updateStatus === 'ready' && (
+          <SettingsRow label="Restarting..." description="Update applied, restarting app" last>
+            <CheckCircle size={12} style={{ color: T.ok }} />
+          </SettingsRow>
+        )}
+        {updateStatus === 'error' && (
+          <SettingsRow label="Update failed" description="Try again later" last>
+            <SmallButton onClick={checkForUpdates}>
+              <RefreshCw size={10} />
+              Retry
+            </SmallButton>
+          </SettingsRow>
+        )}
       </SettingsGroup>
 
       {/* Components */}

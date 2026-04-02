@@ -19,6 +19,9 @@ src-tauri/target/
 REFACTORING_PROMPTS.md
 RELEASE_FIXES.md
 
+# Signing keys (NEVER commit private key)
+src-tauri/keys/
+
 # Claude Code artifacts
 .claude/
 

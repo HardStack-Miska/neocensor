@@ -23,11 +23,19 @@
       }
     ],
     "security": {
-      "csp": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data:; connect-src 'self' ipc: http://ipc.localhost"
+      "csp": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data:; connect-src 'self' ipc: http://ipc.localhost https://github.com https://api.github.com"
     },
     "trayIcon": {
       "iconPath": "icons/icon.png",
       "iconAsTemplate": true
+    }
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEJBRTM0RTVBMzM5NzlBOTYKUldTV21wY3pXazdqdXUxTUs3OVc1cTdRTUtqK2Q4Umx5ekRqSWFBbHJzcXFUNjlGUkVuY29PanUK",
+      "endpoints": [
+        "https://github.com/HardStack-Miska/neocensor/releases/latest/download/latest.json"
+      ]
     }
   },
   "bundle": {

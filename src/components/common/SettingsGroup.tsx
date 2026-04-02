@@ -71,13 +71,15 @@ export const SettingsRow = ({ label, description, last, children }: SettingsRowP
 interface SmallButtonProps {
   children: ReactNode;
   onClick?: () => void;
+  disabled?: boolean;
 }
 
-export const SmallButton = ({ children, onClick }: SmallButtonProps) => {
+export const SmallButton = ({ children, onClick, disabled }: SmallButtonProps) => {
   const T = useThemeStore((s) => s.theme);
   return (
     <button
       onClick={onClick}
+      disabled={disabled}
       style={{
         display: 'flex',
         alignItems: 'center',
@@ -88,7 +90,8 @@ export const SmallButton = ({ children, onClick }: SmallButtonProps) => {
         background: T.bg2,
         color: T.t2,
         fontSize: 10,
-        cursor: 'pointer',
+        cursor: disabled ? 'default' : 'pointer',
+        opacity: disabled ? 0.5 : 1,
         fontFamily: "'DM Sans',-apple-system,'Segoe UI',sans-serif",
       }}
     >
