@@ -1,9 +1,19 @@
 use anyhow::{bail, Context, Result};
 
-/// Run a reg.exe command and check exit code.
+/// Create a Command that hides the console window on Windows.
+#[cfg(windows)]
+fn hidden_command(program: &str) -> std::process::Command {
+    use std::os::windows::process::CommandExt;
+    const CREATE_NO_WINDOW: u32 = 0x08000000;
+    let mut cmd = std::process::Command::new(program);
+    cmd.creation_flags(CREATE_NO_WINDOW);
+    cmd
+}
+
+/// Run a reg.exe command (hidden) and check exit code.
 #[cfg(windows)]
 fn run_reg(args: &[&str]) -> Result<()> {
-    let output = std::process::Command::new("reg")
+    let output = hidden_command("reg")
         .args(args)
         .output()
         .context("failed to execute reg.exe")?;
@@ -33,7 +43,7 @@ pub fn cleanup_stale_proxy(default_port: u16) {
     let reg_key = r"HKCU\Software\Microsoft\Windows\CurrentVersion\Internet Settings";
 
     // Read ProxyEnable
-    let enable_output = std::process::Command::new("reg")
+    let enable_output = hidden_command("reg")
         .args(["query", reg_key, "/v", "ProxyEnable"])
         .output();
     let enabled = match enable_output {
@@ -45,7 +55,7 @@ pub fn cleanup_stale_proxy(default_port: u16) {
     }
 
     // Read ProxyServer
-    let server_output = std::process::Command::new("reg")
+    let server_output = hidden_command("reg")
         .args(["query", reg_key, "/v", "ProxyServer"])
         .output();
     let is_ours = match server_output {
@@ -128,7 +138,7 @@ pub fn unset_system_proxy() -> Result<()> {
 
 #[cfg(windows)]
 fn notify_proxy_change() {
-    let _ = std::process::Command::new("powershell")
+    let _ = hidden_command("powershell")
         .args([
             "-NoProfile",
             "-Command",

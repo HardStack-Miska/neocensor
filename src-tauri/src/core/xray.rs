@@ -39,15 +39,23 @@ impl XrayManager {
             .await
             .context("failed to write xray config")?;
 
-        let mut child = Command::new(&self.binary_path)
-            .arg("run")
+        let mut cmd = Command::new(&self.binary_path);
+        cmd.arg("run")
             .arg("-config")
             .arg(&self.config_path)
             .stdout(std::process::Stdio::piped())
             .stderr(std::process::Stdio::piped())
-            .kill_on_drop(true)
-            .spawn()
-            .context("failed to start xray-core")?;
+            .kill_on_drop(true);
+
+        // Hide console window on Windows
+        #[cfg(windows)]
+        {
+            use std::os::windows::process::CommandExt;
+            const CREATE_NO_WINDOW: u32 = 0x08000000;
+            cmd.creation_flags(CREATE_NO_WINDOW);
+        }
+
+        let mut child = cmd.spawn().context("failed to start xray-core")?;
 
         // Stream stderr to tracing + broadcast
         if let Some(stderr) = child.stderr.take() {

@@ -86,18 +86,30 @@ async fn download_and_extract_zip(
     let dest_str = dest_dir.to_string_lossy().replace('/', "\\");
     let zip_str = zip_path.to_string_lossy().replace('/', "\\");
 
-    let output = tokio::process::Command::new("powershell")
-        .args([
-            "-NoProfile",
-            "-Command",
-            &format!(
-                "Expand-Archive -Path '{}' -DestinationPath '{}' -Force",
-                zip_str, dest_str
-            ),
-        ])
+    #[cfg(windows)]
+    let output = {
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x08000000;
+        tokio::process::Command::new("powershell")
+            .creation_flags(CREATE_NO_WINDOW)
+            .args([
+                "-NoProfile",
+                "-Command",
+                &format!(
+                    "Expand-Archive -Path '{}' -DestinationPath '{}' -Force",
+                    zip_str, dest_str
+                ),
+            ])
+            .output()
+            .await
+            .context("failed to run Expand-Archive")?
+    };
+    #[cfg(not(windows))]
+    let output = tokio::process::Command::new("unzip")
+        .args(["-o", &zip_str, "-d", &dest_str])
         .output()
         .await
-        .context("failed to run Expand-Archive")?;
+        .context("failed to run unzip")?;
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
