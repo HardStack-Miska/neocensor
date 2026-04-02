@@ -323,11 +323,10 @@ async fn sync_routes_to_profile(state: &ManagedState) {
     }
 }
 
-/// Force browsers to re-read proxy settings by toggling proxy off then on.
-///
-/// Chromium caches "proxy unreachable" aggressively. Simply re-setting the same
-/// proxy is ignored. The toggle (unset → 200ms → set) forces Chromium to see a
-/// real configuration change and re-evaluate proxy availability.
+/// Notify browsers that proxy settings should be re-read.
+/// Uses InternetSetOption to signal change without modifying registry
+/// (avoids WSL "proxy changed" notification spam).
+/// Combined with TCP reset via WFP, this forces Chromium to reconnect.
 async fn refresh_proxy_settings(state: &ManagedState) {
     let is_connected = {
         let app_state = state.app_state.lock().await;
@@ -342,28 +341,8 @@ async fn refresh_proxy_settings(state: &ManagedState) {
     if !settings.system_proxy {
         return;
     }
-    let http_port = settings.xray_http_port;
     drop(settings);
 
-    let pac_port = {
-        let pac = state.pac_server.lock().await;
-        pac.port()
-    };
-
-    tracing::info!("toggling proxy settings to force Chromium to re-read");
-
-    // Phase 1: Briefly unset proxy so Chromium sees the change
-    let _ = crate::core::system_proxy::unset_system_proxy();
-
-    // Phase 2: Wait for Chromium to notice proxy was removed
-    tokio::time::sleep(std::time::Duration::from_millis(200)).await;
-
-    // Phase 3: Re-enable proxy — Chromium treats this as a new proxy and retries
-    if pac_port > 0 {
-        let _ = crate::core::system_proxy::set_system_proxy_with_pac("127.0.0.1", http_port, pac_port);
-    } else {
-        let _ = crate::core::system_proxy::set_system_proxy("127.0.0.1", http_port);
-    }
-
-    tracing::info!("proxy toggle complete");
+    tracing::info!("notifying browsers of proxy settings change");
+    crate::core::system_proxy::notify_proxy_refresh();
 }

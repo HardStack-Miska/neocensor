@@ -170,6 +170,11 @@ mod win {
         }
     }
 
+    /// Notify browsers without touching registry — for use after WFP TCP reset.
+    pub fn notify_only() {
+        notify();
+    }
+
     pub fn set_proxy_with_pac(proxy: &str, pac_url: &str, override_str: &str) -> Result<()> {
         let hkey = open_key(KEY_SET_VALUE.0)?;
         set_dword(hkey, "ProxyEnable", 1)?;
@@ -258,6 +263,16 @@ pub fn cleanup_stale_proxy(default_port: u16) {
         }
     }
 }
+
+/// Notify browsers to re-read proxy settings without changing registry.
+/// Just calls InternetSetOption — no registry writes, no WSL notifications.
+#[cfg(windows)]
+pub fn notify_proxy_refresh() {
+    win::notify_only();
+}
+
+#[cfg(not(windows))]
+pub fn notify_proxy_refresh() {}
 
 // ─── Non-Windows stubs ───
 
