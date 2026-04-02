@@ -1,204 +1,127 @@
 <div align="center">
 
-<img src="src-tauri/icons/icon.png" alt="NeoCensor" width="120">
+<img src="src-tauri/icons/icon.png" alt="NeoCensor" width="100">
 
 # NeoCensor
 
-**Desktop proxy client with per-app split tunneling**
+Desktop proxy client with per-app split tunneling
 
-[![Release](https://img.shields.io/github/v/release/HardStack-Miska/neocensor?style=flat-square&color=6880A8)](https://github.com/HardStack-Miska/neocensor/releases)
+[![Release](https://img.shields.io/github/v/release/HardStack-Miska/neocensor?style=flat-square&color=6880A8&label=version)](https://github.com/HardStack-Miska/neocensor/releases)
 [![Downloads](https://img.shields.io/github/downloads/HardStack-Miska/neocensor/total?style=flat-square&color=5E9A78)](https://github.com/HardStack-Miska/neocensor/releases)
-[![License](https://img.shields.io/github/license/HardStack-Miska/neocensor?style=flat-square)](LICENSE)
-[![Stars](https://img.shields.io/github/stars/HardStack-Miska/neocensor?style=flat-square)](https://github.com/HardStack-Miska/neocensor/stargazers)
+[![License](https://img.shields.io/github/license/HardStack-Miska/neocensor?style=flat-square&color=888)](LICENSE)
 
-Route each app through proxy, direct, or block — individually.
+<br>
 
-[Download](#-download) · [Features](#-features) · [Build](#%EF%B8%8F-build-from-source) · [Contributing](#-contributing)
+[<img src="https://img.shields.io/badge/Download_Installer-v0.1.0-6880A8?style=for-the-badge&logo=windows" alt="Download">](https://github.com/HardStack-Miska/neocensor/releases/download/v0.1.0/NeoCensor_0.1.0_x64-setup.exe)
+
+<sub>Windows 10/11 x64 &nbsp;·&nbsp; 3.8 MB &nbsp;·&nbsp; [MSI version](https://github.com/HardStack-Miska/neocensor/releases/download/v0.1.0/NeoCensor_0.1.0_x64_en-US.msi)</sub>
 
 </div>
 
 ---
 
-## What is NeoCensor?
+## About
 
-NeoCensor is a lightweight Windows desktop client that gives you **per-application control** over your network traffic. Instead of routing everything through a VPN, you decide which apps use the proxy, which go direct, and which get blocked entirely.
+NeoCensor lets you control network traffic **per application**. Instead of routing everything through a VPN, you decide which apps use the proxy, which go direct, and which get blocked.
 
-Built with [Tauri](https://tauri.app/) (Rust + React), it uses [xray-core](https://github.com/XTLS/Xray-core) as the proxy engine and Windows Filtering Platform (WFP) for kernel-level traffic routing.
+Built with [Tauri](https://tauri.app/) (Rust + React). Uses [xray-core](https://github.com/XTLS/Xray-core) as the proxy engine and Windows Filtering Platform for kernel-level routing.
 
-## ✨ Features
+## Features
 
-- **Per-App Routing** — Set each application to Proxy, Direct, or Block mode individually
-- **VLESS Protocol** — Modern proxy protocol with Reality, TLS, WebSocket, gRPC, xHTTP transports
-- **Profile System** — Switch between Gaming, Work, Smart Route, Full Tunnel presets instantly
-- **Subscription Support** — Import servers from Base64, Sing-Box JSON, and Clash YAML formats
-- **Windows Filtering Platform** — Kernel-level traffic control, not just a system proxy
-- **Auto xray-core** — Downloads and verifies (SHA256) the xray binary automatically
-- **System Tray** — Runs in background, connect/disconnect from tray
-- **TCP Reset Technique** — Forces Chromium browsers to re-read proxy settings on mode change
-- **Lightweight** — 3.8 MB installer, ~30 MB RAM usage
+**Routing**
+- Set each app to Proxy, Direct, or Block individually
+- Windows Filtering Platform — kernel-level traffic control, not just system proxy
+- TCP reset technique forces Chromium to re-read proxy on mode switch
 
-## 📥 Download
+**Protocol**
+- VLESS with Reality, TLS, WebSocket, gRPC, xHTTP transports
+- Subscriptions — Base64, Sing-Box JSON, Clash YAML formats
+- Auto-download xray-core with SHA256 checksum verification
 
-| Platform | Installer | Format |
-|----------|-----------|--------|
-| **Windows x64** | [NeoCensor_0.1.0_x64-setup.exe](https://github.com/HardStack-Miska/neocensor/releases/latest) | NSIS installer (recommended) |
-| **Windows x64** | [NeoCensor_0.1.0_x64_en-US.msi](https://github.com/HardStack-Miska/neocensor/releases/latest) | MSI installer |
+**UX**
+- Profile presets — Gaming, Work, Smart Route, Full Tunnel
+- System tray — runs in background, connect/disconnect from tray
+- 3.8 MB installer, ~30 MB RAM
 
-> **Note:** Run as Administrator for full per-app routing (WFP requires elevated privileges). Without admin rights, the app works as a standard system proxy.
+## How it works
 
-## 🖥️ Screenshots
-
-<div align="center">
-
-*Coming soon*
-
-</div>
-
-## 🔧 How It Works
-
-NeoCensor combines three techniques for per-app routing:
+NeoCensor combines three techniques:
 
 ```
-┌─────────────────────────────────────────────────┐
-│  App set to PROXY                               │
-│  → Uses system proxy (PAC) → xray-core → VPN   │
-├─────────────────────────────────────────────────┤
-│  App set to DIRECT                              │
-│  → WFP blocks proxy port → PAC fallback → ISP  │
-├─────────────────────────────────────────────────┤
-│  App set to BLOCK                               │
-│  → WFP blocks all traffic → No internet         │
-└─────────────────────────────────────────────────┘
+App → PROXY    System proxy (PAC) → xray-core → VPN server
+App → DIRECT   WFP blocks proxy port → PAC fallback → ISP
+App → BLOCK    WFP blocks all traffic → no internet
 ```
 
-1. **System Proxy + PAC** — Configures Windows proxy with a PAC file that returns `PROXY host:port; DIRECT`
-2. **WFP Filters** — For DIRECT apps, blocks connections to the proxy port so the PAC fallback kicks in
-3. **TCP Reset** — When switching modes, temporarily blocks the app to kill keepalive connections, forcing Chromium to re-evaluate proxy settings
+The PAC server returns `PROXY host:port; DIRECT`. For apps set to Direct, WFP blocks connections to the proxy port, so the browser falls back to DIRECT automatically.
 
-## 🛠️ Build from Source
+## Download
 
-### Prerequisites
+| File | Size | Description |
+|------|------|-------------|
+| [NeoCensor_0.1.0_x64-setup.exe](https://github.com/HardStack-Miska/neocensor/releases/download/v0.1.0/NeoCensor_0.1.0_x64-setup.exe) | 3.8 MB | NSIS installer (recommended) |
+| [NeoCensor_0.1.0_x64_en-US.msi](https://github.com/HardStack-Miska/neocensor/releases/download/v0.1.0/NeoCensor_0.1.0_x64_en-US.msi) | 5.6 MB | MSI installer |
 
-- [Node.js](https://nodejs.org/) >= 18
-- [Rust](https://rustup.rs/) >= 1.75
-- Windows 10/11 with [WebView2](https://developer.microsoft.com/en-us/microsoft-edge/webview2/)
+Run as Administrator for full per-app routing. Without admin, works as a standard system proxy.
 
-### Steps
+## Build from source
+
+Requires: Node.js 18+, Rust 1.75+, Windows 10/11 with WebView2.
 
 ```bash
-# Clone
 git clone https://github.com/HardStack-Miska/neocensor.git
 cd neocensor
-
-# Install frontend dependencies
 npm install
-
-# Development mode
-npm run tauri dev
-
-# Build release
 npm run tauri build
 ```
 
-Output:
-- `src-tauri/target/release/neocensor.exe` — portable binary
-- `src-tauri/target/release/bundle/nsis/` — NSIS installer
-- `src-tauri/target/release/bundle/msi/` — MSI installer
-
-## 📁 Project Structure
+## Project structure
 
 ```
-neocensor/
-├── src/                        # React frontend
-│   ├── components/             # UI components
-│   │   ├── Sidebar/            # Server list, profiles, subscriptions
-│   │   ├── Routing/            # Per-app route configuration
-│   │   ├── Traffic/            # Live connection monitor
-│   │   ├── Settings/           # App settings, logs
-│   │   ├── Layout/             # Titlebar, window controls
-│   │   └── common/             # Toast, Toggle, ErrorBoundary
-│   ├── stores/                 # Zustand state management
-│   └── lib/                    # Types, theme, Tauri API wrapper
-│
-├── src-tauri/                  # Rust backend
-│   └── src/
-│       ├── core/               # Business logic
-│       │   ├── xray.rs         # xray-core process manager
-│       │   ├── config_gen.rs   # xray config generation
-│       │   ├── wfp/            # Windows Filtering Platform
-│       │   ├── pac_server.rs   # PAC file HTTP server
-│       │   ├── system_proxy.rs # Windows registry proxy
-│       │   └── ...
-│       ├── commands/           # Tauri IPC commands
-│       ├── models/             # Data structures
-│       ├── parsers/            # VLESS URI & subscription parsers
-│       └── utils/              # Paths, constants
-│
-└── package.json
+src/                    React frontend (Zustand, TypeScript)
+  components/           Sidebar, Routing, Traffic, Settings
+  stores/               Connection, server, routing, settings state
+  lib/                  Types, theme, Tauri API wrapper
+
+src-tauri/src/          Rust backend
+  core/                 xray manager, WFP, PAC server, system proxy
+  commands/             Tauri IPC (connect, routing, subscriptions)
+  models/               Server, route, profile, settings
+  parsers/              VLESS URI, subscription formats
 ```
 
-## 🔐 Security
+## Tech stack
 
-- **No hardcoded secrets** — All server credentials stored in JSON, xray config deleted after disconnect
-- **SHA256 verification** — Downloaded xray binary is verified against release checksums
-- **Input validation** — Proxy host, ports, and server configs validated before use
-- **Registry safety** — `reg.exe` exit codes checked, stale proxy cleaned up on startup
-- **Panic recovery** — System proxy is unset on crash via panic hook
-
-## ⚙️ Tech Stack
-
-| Layer | Technology |
-|-------|-----------|
-| Framework | [Tauri 2](https://tauri.app/) |
+| | |
+|---|---|
+| Framework | Tauri 2 (Rust + WebView) |
 | Frontend | React 19, TypeScript, Zustand |
-| Backend | Rust, Tokio |
-| Styling | Inline styles + theme system |
-| Proxy Engine | [xray-core](https://github.com/XTLS/Xray-core) (VLESS) |
-| Traffic Control | Windows Filtering Platform (WFP) |
-| Installer | NSIS, MSI |
+| Proxy | xray-core (VLESS) |
+| Routing | Windows Filtering Platform |
+| Build | Vite, Cargo |
 
-## 🗺️ Roadmap
+## Roadmap
 
-- [ ] macOS / Linux support
-- [ ] Multi-hop (chain) proxy
-- [ ] Geo-based auto-routing (Smart mode)
-- [ ] VMess, Trojan, Shadowsocks protocols
-- [ ] i18n (Russian, Ukrainian)
-- [ ] Auto-update mechanism
-- [ ] Traffic statistics (bandwidth graphs)
+- macOS and Linux support
+- Multi-hop proxy chains
+- Geo-based auto-routing
+- VMess, Trojan, Shadowsocks
+- Localization (ru, uk)
+- Auto-update
 
-## 🤝 Contributing
+## Contributing
 
-Contributions are welcome! Please:
+1. Fork the repo
+2. Create a branch (`git checkout -b feature/thing`)
+3. Commit (`git commit -m 'feat(scope): description'`)
+4. Push and open a PR
 
-1. Fork the repository
-2. Create a feature branch (`git checkout -b feature/amazing-feature`)
-3. Commit your changes (`git commit -m 'feat: add amazing feature'`)
-4. Push to the branch (`git push origin feature/amazing-feature`)
-5. Open a Pull Request
+## License
 
-### Commit Convention
-
-```
-feat(scope): description    # New feature
-fix(scope): description     # Bug fix
-refactor(scope): description # Code change
-```
-
-Scopes: `vpn`, `wfp`, `ui`, `routing`, `auth`, `api`
-
-## 📄 License
-
-This project is licensed under the MIT License — see the [LICENSE](LICENSE) file for details.
-
-## ⭐ Star History
-
-If you find NeoCensor useful, please consider giving it a star!
+[MIT](LICENSE)
 
 ---
 
 <div align="center">
-
-Made with Rust + React + Tauri
-
+<sub>Tauri + React + Rust</sub>
 </div>
