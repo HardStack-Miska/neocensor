@@ -311,7 +311,7 @@ export const SettingsPanel = () => {
       <SettingsGroup title="Updates">
         <SettingsRow label="App version" description="Current installed version" last={updateStatus === 'idle' || updateStatus === 'uptodate' || updateStatus === 'checking'}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-            <span style={{ fontSize: 10.5, fontFamily: MONO, color: T.t1 }}>v0.2.1</span>
+            <span style={{ fontSize: 10.5, fontFamily: MONO, color: T.t1 }}>v0.3.0</span>
             <SmallButton onClick={checkForUpdates} disabled={updateStatus === 'checking' || updateStatus === 'downloading'}>
               <RefreshCw size={10} style={updateStatus === 'checking' ? { animation: 'spin .7s linear infinite' } : {}} />
               {updateStatus === 'checking' ? 'Checking...' : 'Check'}
