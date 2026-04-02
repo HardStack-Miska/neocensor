@@ -205,7 +205,9 @@ async fn restart_singbox_with_routes(state: &ManagedState) {
     };
 
     // Generate new config and restart
-    match ConfigGenerator::generate_singbox_config(&server, &settings, &routes, default_mode) {
+    // Check if sing-box is running with TUN (process alive = TUN likely worked)
+    let tun_mode = state.singbox.is_alive().await;
+    match ConfigGenerator::generate_singbox_config(&server, &settings, &routes, default_mode, tun_mode) {
         Ok(config) => {
             if let Err(e) = state.singbox.restart(&config).await {
                 tracing::error!("sing-box restart failed: {e}");

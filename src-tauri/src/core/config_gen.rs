@@ -8,21 +8,46 @@ use crate::models::{AppRoute, RouteMode, SecurityConfig, ServerConfig, Settings,
 pub struct ConfigGenerator;
 
 impl ConfigGenerator {
-    /// Generate sing-box JSON config with TUN + mixed inbounds.
+    /// Generate sing-box config. `tun_mode` = true for TUN (needs admin), false for proxy-only.
     pub fn generate_singbox_config(
         server: &ServerConfig,
         settings: &Settings,
         routes: &[AppRoute],
         default_mode: RouteMode,
+        tun_mode: bool,
     ) -> Result<serde_json::Value> {
         let vless_outbound = build_vless_outbound(server)?;
-        let route_rules = build_route_rules(routes, default_mode);
+        let route_rules = build_route_rules(routes, default_mode, tun_mode);
 
         let default_outbound = match default_mode {
             RouteMode::Proxy | RouteMode::Auto => "proxy",
             RouteMode::Direct => "direct",
             RouteMode::Block => "block",
         };
+
+        let mut inbounds = vec![];
+
+        // TUN inbound — captures all system traffic (requires admin)
+        if tun_mode {
+            inbounds.push(json!({
+                "type": "tun",
+                "tag": "tun-in",
+                "interface_name": "NeoCensor",
+                "address": ["10.254.0.1/30"],
+                "mtu": 9000,
+                "auto_route": true,
+                "strict_route": true,
+                "stack": "system",
+            }));
+        }
+
+        // Mixed inbound — HTTP+SOCKS5 proxy on localhost
+        inbounds.push(json!({
+            "type": "mixed",
+            "tag": "mixed-in",
+            "listen": "::",
+            "listen_port": settings.mixed_port,
+        }));
 
         let config = json!({
             "log": {
@@ -50,24 +75,7 @@ impl ConfigGenerator {
                 ],
                 "final": "proxy-dns",
             },
-            "inbounds": [
-                {
-                    "type": "tun",
-                    "tag": "tun-in",
-                    "interface_name": "NeoCensor",
-                    "address": ["10.254.0.1/30"],
-                    "mtu": 9000,
-                    "auto_route": true,
-                    "strict_route": true,
-                    "stack": "system",
-                },
-                {
-                    "type": "mixed",
-                    "tag": "mixed-in",
-                    "listen": "::",
-                    "listen_port": settings.mixed_port,
-                },
-            ],
+            "inbounds": inbounds,
             "outbounds": [
                 vless_outbound,
                 { "type": "direct", "tag": "direct" },
@@ -176,15 +184,20 @@ fn build_vless_outbound(server: &ServerConfig) -> Result<serde_json::Value> {
 }
 
 /// Build route rules array including per-app process_name rules.
-fn build_route_rules(routes: &[AppRoute], _default_mode: RouteMode) -> Vec<serde_json::Value> {
+fn build_route_rules(routes: &[AppRoute], _default_mode: RouteMode, tun_mode: bool) -> Vec<serde_json::Value> {
     let mut rules = vec![
-        // Sniff all inbound traffic (replaces legacy "sniff": true in inbounds)
+        // Sniff all inbound traffic
         json!({ "action": "sniff" }),
-        // DNS hijack (replaces legacy dns outbound)
+        // DNS hijack
         json!({ "protocol": "dns", "action": "hijack-dns" }),
         // Private IPs go direct
         json!({ "ip_is_private": true, "outbound": "direct" }),
     ];
+
+    // Per-app process_name rules only work in TUN mode
+    if !tun_mode {
+        return rules;
+    }
 
     // Group routes by mode
     let mut grouped: HashMap<RouteMode, Vec<String>> = HashMap::new();
@@ -240,7 +253,7 @@ mod tests {
         let settings = Settings::default();
         let routes = vec![];
         let config = ConfigGenerator::generate_singbox_config(
-            &server, &settings, &routes, RouteMode::Proxy,
+            &server, &settings, &routes, RouteMode::Proxy, true,
         )
         .unwrap();
 
@@ -274,7 +287,7 @@ mod tests {
         );
         let settings = Settings::default();
         let config = ConfigGenerator::generate_singbox_config(
-            &server, &settings, &[], RouteMode::Proxy,
+            &server, &settings, &[], RouteMode::Proxy, true,
         )
         .unwrap();
 
@@ -304,7 +317,7 @@ mod tests {
         );
         let settings = Settings::default();
         let config = ConfigGenerator::generate_singbox_config(
-            &server, &settings, &[], RouteMode::Proxy,
+            &server, &settings, &[], RouteMode::Proxy, true,
         )
         .unwrap();
 
@@ -332,7 +345,7 @@ mod tests {
         );
         let settings = Settings::default();
         let result = ConfigGenerator::generate_singbox_config(
-            &server, &settings, &[], RouteMode::Proxy,
+            &server, &settings, &[], RouteMode::Proxy, true,
         );
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("xhttp"));
@@ -351,7 +364,7 @@ mod tests {
                 .with_display_name("Steam"),
         ];
         let config = ConfigGenerator::generate_singbox_config(
-            &server, &settings, &routes, RouteMode::Direct,
+            &server, &settings, &routes, RouteMode::Direct, true,
         )
         .unwrap();
 
@@ -381,7 +394,7 @@ mod tests {
         );
         let settings = Settings::default();
         let config = ConfigGenerator::generate_singbox_config(
-            &server, &settings, &[], RouteMode::Proxy,
+            &server, &settings, &[], RouteMode::Proxy, true,
         )
         .unwrap();
 

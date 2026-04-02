@@ -20,10 +20,15 @@ async fn wait_for_singbox(port: u16) -> Result<(), String> {
 #[derive(Default)]
 struct ConnectRollback {
     singbox_started: bool,
+    system_proxy_set: bool,
 }
 
 impl ConnectRollback {
     async fn rollback(self, state: &ManagedState) {
+        if self.system_proxy_set {
+            tracing::debug!("rollback: unsetting system proxy");
+            let _ = crate::core::system_proxy::unset_system_proxy();
+        }
         if self.singbox_started {
             tracing::debug!("rollback: stopping sing-box");
             state.singbox.stop().await.ok();
@@ -147,18 +152,21 @@ async fn connect_inner(
     };
     let routes = state.app_routes.lock().await.clone();
 
-    // Generate sing-box config
-    tracing::debug!("generating sing-box config");
+    // Try TUN mode first (needs admin), fallback to proxy-only
+    let mut tun_mode = true;
+
+    // Generate TUN config
+    tracing::debug!("generating sing-box config (TUN mode)");
     let singbox_config = ConfigGenerator::generate_singbox_config(
-        &server, &settings, &routes, default_mode,
+        &server, &settings, &routes, default_mode, tun_mode,
     )
     .map_err(|e| {
         tracing::error!("sing-box config generation failed: {e}");
         e.to_string()
     })?;
 
-    // Start sing-box
-    tracing::info!("starting sing-box (mixed port: {})", settings.mixed_port);
+    // Start sing-box with TUN
+    tracing::info!("starting sing-box (TUN + mixed port: {})", settings.mixed_port);
     if let Err(e) = state.singbox.start(&singbox_config).await {
         tracing::error!("sing-box start failed: {e}");
         rb.rollback(state).await;
@@ -166,26 +174,48 @@ async fn connect_inner(
     }
     rb.singbox_started = true;
 
-    // Give sing-box a moment to start, then check if it crashed immediately
+    // Check if sing-box crashed (TUN requires admin — may get Access Denied)
     tokio::time::sleep(std::time::Duration::from_millis(500)).await;
     if !state.singbox.is_alive().await {
-        rb.rollback(state).await;
-        return Err(
-            "sing-box exited immediately. This usually means:\n\
-             - App not running as Administrator (TUN requires admin rights)\n\
-             - Another VPN/proxy is using the TUN adapter\n\
-             Check Logs tab for details."
-                .to_string(),
-        );
+        tracing::warn!("sing-box TUN mode failed, falling back to proxy-only mode");
+        tun_mode = false;
+
+        // Regenerate config without TUN
+        let proxy_config = ConfigGenerator::generate_singbox_config(
+            &server, &settings, &routes, default_mode, false,
+        )
+        .map_err(|e| e.to_string())?;
+
+        if let Err(e) = state.singbox.start(&proxy_config).await {
+            rb.rollback(state).await;
+            return Err(format!("failed to start sing-box: {e}"));
+        }
+
+        // Check again
+        tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+        if !state.singbox.is_alive().await {
+            rb.rollback(state).await;
+            return Err("sing-box failed to start. Check Logs for details.".to_string());
+        }
+
+        // Set system proxy to route browser traffic through sing-box
+        if let Err(e) = crate::core::system_proxy::set_system_proxy("127.0.0.1", settings.mixed_port) {
+            tracing::error!("failed to set system proxy: {e}");
+        } else {
+            rb.system_proxy_set = true;
+        }
     }
 
-    // Wait for sing-box to bind ports
+    // Wait for sing-box to bind mixed port
     tracing::info!("waiting for sing-box to bind ports");
     if let Err(e) = wait_for_singbox(settings.mixed_port).await {
         tracing::error!("sing-box health check failed: {e}");
         rb.rollback(state).await;
         return Err(e);
     }
+
+    let mode_str = if tun_mode { "TUN" } else { "proxy-only (no admin)" };
+    tracing::info!("sing-box running in {mode_str} mode");
 
     // Mark server as online
     {
@@ -222,6 +252,9 @@ pub async fn disconnect(
     tracing::debug!("disconnect: clearing connections");
     state.clear_connections().await;
     let _ = app_handle.emit("connection-status", "disconnecting");
+
+    // Unset system proxy (in case we were in proxy-only fallback mode)
+    let _ = crate::core::system_proxy::unset_system_proxy();
 
     // Stop sing-box
     tracing::debug!("stopping sing-box");

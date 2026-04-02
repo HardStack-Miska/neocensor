@@ -7,6 +7,7 @@ pub mod downloader;
 pub mod traffic;
 pub mod logger;
 pub mod tray;
+pub mod system_proxy;
 
 pub use singbox::SingboxManager;
 pub use persistence::Store;
