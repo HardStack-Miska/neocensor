@@ -109,8 +109,9 @@ async fn download_and_extract_zip(
     let output = {
         use std::os::windows::process::CommandExt;
         const CREATE_NO_WINDOW: u32 = 0x08000000;
+        const DETACHED_PROCESS: u32 = 0x00000008;
         tokio::process::Command::new("powershell")
-            .creation_flags(CREATE_NO_WINDOW)
+            .creation_flags(CREATE_NO_WINDOW | DETACHED_PROCESS)
             .args([
                 "-NoProfile",
                 "-Command",

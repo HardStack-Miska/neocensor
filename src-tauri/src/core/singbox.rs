@@ -48,12 +48,13 @@ impl SingboxManager {
             .stderr(std::process::Stdio::piped())
             .kill_on_drop(true);
 
-        // Hide console window on Windows
+        // Hide console window and prevent conhost creation on Windows
         #[cfg(windows)]
         {
             use std::os::windows::process::CommandExt;
             const CREATE_NO_WINDOW: u32 = 0x08000000;
-            cmd.creation_flags(CREATE_NO_WINDOW);
+            const DETACHED_PROCESS: u32 = 0x00000008;
+            cmd.creation_flags(CREATE_NO_WINDOW | DETACHED_PROCESS);
         }
 
         let mut child = cmd.spawn().context("failed to start sing-box")?;
@@ -98,8 +99,13 @@ impl SingboxManager {
     pub async fn stop(&self) -> Result<()> {
         let mut guard = self.child.lock().await;
         if let Some(mut child) = guard.take() {
+            // Try graceful kill first
             child.kill().await.ok();
-            child.wait().await.ok();
+            // Wait with timeout to avoid hanging on zombie process
+            let _ = tokio::time::timeout(
+                std::time::Duration::from_secs(3),
+                child.wait(),
+            ).await;
             tracing::info!("sing-box stopped");
         }
         // Remove config file to avoid leaving credentials on disk
