@@ -33,6 +33,8 @@ impl SingboxManager {
     /// Write config and start sing-box.
     pub async fn start(&self, config: &serde_json::Value) -> Result<()> {
         self.stop().await?;
+        // Brief pause to let OS release bound ports from previous instance
+        tokio::time::sleep(std::time::Duration::from_millis(300)).await;
 
         let config_str = serde_json::to_string_pretty(config)?;
         tokio::fs::write(&self.config_path, &config_str)

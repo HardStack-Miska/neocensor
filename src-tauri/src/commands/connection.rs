@@ -180,6 +180,10 @@ async fn connect_inner(
         tracing::warn!("sing-box TUN mode failed, falling back to proxy-only mode");
         tun_mode = false;
 
+        // Ensure dead process is fully cleaned up and port released
+        state.singbox.stop().await.ok();
+        tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+
         // Regenerate config without TUN
         let proxy_config = ConfigGenerator::generate_singbox_config(
             &server, &settings, &routes, default_mode, false,
