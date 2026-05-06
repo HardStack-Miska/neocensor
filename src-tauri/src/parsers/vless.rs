@@ -84,13 +84,37 @@ pub fn parse_vless_uri(uri: &str) -> Result<ServerConfig> {
     // Parse security
     let security = match get("security").unwrap_or("none") {
         "reality" => {
+            // Some panels emit pbk under aliases publicKey / public-key
             let pbk = get("pbk")
+                .or_else(|| get("publicKey"))
+                .or_else(|| get("public-key"))
                 .ok_or_else(|| anyhow!("reality requires pbk (public key)"))?;
+            // Reality public key must be base64url, 43 chars (32 bytes unpadded)
+            if pbk.len() != 43
+                || !pbk
+                    .chars()
+                    .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
+            {
+                return Err(anyhow!(
+                    "reality pbk must be 43-char base64url (got {} chars)",
+                    pbk.len()
+                ));
+            }
+            // Reality short id must be empty or 1-16 lowercase hex chars
+            let sid = get("sid").unwrap_or("");
+            if !sid.is_empty()
+                && (sid.len() > 16
+                    || !sid.chars().all(|c| c.is_ascii_hexdigit()))
+            {
+                return Err(anyhow!(
+                    "reality short_id must be 0-16 hex chars, got: {sid}"
+                ));
+            }
             SecurityConfig::Reality {
                 sni: get("sni").unwrap_or(&host).to_string(),
                 fingerprint: get("fp").unwrap_or("chrome").to_string(),
                 public_key: pbk.to_string(),
-                short_id: get("sid").unwrap_or("").to_string(),
+                short_id: sid.to_lowercase(),
                 spider_x: get("spx").map(String::from),
             }
         }
@@ -212,7 +236,7 @@ mod tests {
     fn parse_reality_vision_uri() {
         let uri = "vless://550e8400-e29b-41d4-a716-446655440000@example.com:443\
             ?type=tcp&security=reality&fp=chrome\
-            &pbk=abc123publickey&sid=0a1b2c\
+            &pbk=EkUjqAcoT_fH4LK1KpxXtUuxA82E5Tg6F6OPdqBzYjg&sid=0a1b2c\
             &sni=www.microsoft.com\
             &flow=xtls-rprx-vision\
             &encryption=none#NL-1";
@@ -234,7 +258,7 @@ mod tests {
             } => {
                 assert_eq!(sni, "www.microsoft.com");
                 assert_eq!(fingerprint, "chrome");
-                assert_eq!(public_key, "abc123publickey");
+                assert_eq!(public_key, "EkUjqAcoT_fH4LK1KpxXtUuxA82E5Tg6F6OPdqBzYjg");
                 assert_eq!(short_id, "0a1b2c");
             }
             _ => panic!("expected Reality security"),
@@ -277,7 +301,7 @@ mod tests {
         let uri = "vless://test-uuid@grpc.example.com:443\
             ?type=grpc&serviceName=mygrpc\
             &security=reality&fp=chrome\
-            &pbk=key123&sid=ab&sni=target.com\
+            &pbk=EkUjqAcoT_fH4LK1KpxXtUuxA82E5Tg6F6OPdqBzYjg&sid=ab&sni=target.com\
             &encryption=none#gRPC-Server";
 
         let config = parse_vless_uri(uri).unwrap();
@@ -310,7 +334,7 @@ mod tests {
     fn roundtrip_uri() {
         let uri = "vless://550e8400-e29b-41d4-a716-446655440000@example.com:443\
             ?type=tcp&security=reality&fp=chrome\
-            &pbk=abc123&sid=0a\
+            &pbk=EkUjqAcoT_fH4LK1KpxXtUuxA82E5Tg6F6OPdqBzYjg&sid=0a\
             &sni=www.microsoft.com\
             &flow=xtls-rprx-vision\
             &encryption=none#Test";
@@ -466,7 +490,7 @@ mod tests {
     #[test]
     fn parse_reality_tcp_flow() {
         let uri = "vless://a1b2c3d4-e5f6-7890-abcd-ef1234567890@host.example.com:443\
-            ?type=tcp&security=reality&fp=chrome&pbk=SomePublicKey123\
+            ?type=tcp&security=reality&fp=chrome&pbk=EkUjqAcoT_fH4LK1KpxXtUuxA82E5Tg6F6OPdqBzYjg\
             &sid=ab&sni=www.microsoft.com&flow=xtls-rprx-vision\
             &encryption=none#MyServer";
         let config = parse_vless_uri(uri).unwrap();
@@ -479,11 +503,29 @@ mod tests {
             SecurityConfig::Reality { sni, fingerprint, public_key, short_id, .. } => {
                 assert_eq!(sni, "www.microsoft.com");
                 assert_eq!(fingerprint, "chrome");
-                assert_eq!(public_key, "SomePublicKey123");
+                assert_eq!(public_key, "EkUjqAcoT_fH4LK1KpxXtUuxA82E5Tg6F6OPdqBzYjg");
                 assert_eq!(short_id, "ab");
             }
             _ => panic!("expected Reality security"),
         }
+    }
+
+    #[test]
+    fn reject_invalid_pbk_length() {
+        let uri = "vless://a1b2c3d4-e5f6-7890-abcd-ef1234567890@host.example.com:443\
+            ?type=tcp&security=reality&fp=chrome&pbk=tooshort\
+            &sid=ab&sni=example.com&encryption=none#Bad";
+        assert!(parse_vless_uri(uri).is_err());
+    }
+
+    #[test]
+    fn reject_invalid_pbk_chars() {
+        let uri = "vless://a1b2c3d4-e5f6-7890-abcd-ef1234567890@host.example.com:443\
+            ?type=tcp&security=reality&fp=chrome\
+            &pbk=EkUjqAcoT/fH4LK1KpxXtUuxA82E5Tg6F6OPdqBzYjg\
+            &sid=ab&sni=example.com&encryption=none#Bad";
+        // contains '/' which is base64-standard, not base64url — must reject
+        assert!(parse_vless_uri(uri).is_err());
     }
 
     #[test]

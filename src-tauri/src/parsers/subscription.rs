@@ -394,8 +394,11 @@ mod tests {
 
     #[test]
     fn parse_base64_subscription() {
-        let uris = "vless://uuid1@server1.com:443?type=tcp&security=reality&fp=chrome&pbk=key1&sid=01&sni=sni1.com&flow=xtls-rprx-vision&encryption=none#Server-1\n\
-                     vless://uuid2@server2.com:443?type=tcp&security=reality&fp=chrome&pbk=key2&sid=02&sni=sni2.com&flow=xtls-rprx-vision&encryption=none#Server-2";
+        let pbk = "EkUjqAcoT_fH4LK1KpxXtUuxA82E5Tg6F6OPdqBzYjg";
+        let uris = format!(
+            "vless://uuid1@server1.com:443?type=tcp&security=reality&fp=chrome&pbk={pbk}&sid=01&sni=sni1.com&flow=xtls-rprx-vision&encryption=none#Server-1\n\
+             vless://uuid2@server2.com:443?type=tcp&security=reality&fp=chrome&pbk={pbk}&sid=02&sni=sni2.com&flow=xtls-rprx-vision&encryption=none#Server-2"
+        );
         let encoded = general_purpose::STANDARD.encode(uris);
 
         let servers = parse_subscription(&encoded).unwrap();

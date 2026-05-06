@@ -79,19 +79,12 @@ async fn download_and_extract_zip(
 
     let bytes = resp.bytes().await.context("failed to read response body")?;
 
-    // Verify SHA256 checksum if .dgst URL is available
+    // Verify SHA256 checksum if checksum URL is available.
+    // For supply-chain safety we treat any verification failure as fatal — including
+    // network/parse errors. A missing checksum file is a release-process bug, not a
+    // reason to install an unverified binary.
     if let Some(dgst_url) = dgst_url {
-        match verify_sha256(&client, dgst_url, &bytes).await {
-            Ok(()) => {}
-            Err(e) if e.to_string().contains("SHA256 mismatch") => {
-                // Checksum mismatch is a hard failure — binary may be corrupted/tampered
-                return Err(e);
-            }
-            Err(e) => {
-                // .dgst fetch failed (404, network) — warn but proceed
-                tracing::warn!("SHA256 verification unavailable: {e}");
-            }
-        }
+        verify_sha256(&client, dgst_url, &bytes).await?;
     }
 
     // Write to temp zip file
@@ -107,7 +100,6 @@ async fn download_and_extract_zip(
 
     #[cfg(windows)]
     let output = {
-        use std::os::windows::process::CommandExt;
         const CREATE_NO_WINDOW: u32 = 0x08000000;
         const DETACHED_PROCESS: u32 = 0x00000008;
         tokio::process::Command::new("powershell")
@@ -150,8 +142,11 @@ async fn download_and_extract_zip(
     Ok(final_path)
 }
 
-/// Verify SHA256 of downloaded bytes against a .dgst file from the release.
-/// Xray .dgst files contain lines like: `SHA256= <hex_hash>`
+/// Verify SHA256 of downloaded bytes against a checksum file from the release.
+///
+/// Supports two formats:
+///   - sing-box / standard `sha256sum` output: `<64-hex-hash>  <filename>` (one or more lines)
+///   - Xray `.dgst` format: `SHA256= <hex_hash>`
 async fn verify_sha256(
     client: &reqwest::Client,
     dgst_url: &str,
@@ -161,23 +156,16 @@ async fn verify_sha256(
         .get(dgst_url)
         .send()
         .await
-        .context("failed to fetch .dgst file")?;
+        .context("failed to fetch checksum file")?;
 
     if !resp.status().is_success() {
-        return Err(anyhow!(".dgst fetch failed: HTTP {}", resp.status()));
+        return Err(anyhow!("checksum fetch failed: HTTP {}", resp.status()));
     }
 
     let dgst_body = resp.text().await?;
+    let expected = parse_sha256_from_checksum(&dgst_body)
+        .ok_or_else(|| anyhow!("could not extract SHA256 from checksum file"))?;
 
-    // Parse SHA256 hash from .dgst file
-    let expected = dgst_body
-        .lines()
-        .find(|line| line.starts_with("SHA256"))
-        .and_then(|line| line.split('=').nth(1))
-        .map(|h| h.trim().to_lowercase())
-        .ok_or_else(|| anyhow!("SHA256 not found in .dgst file"))?;
-
-    // Compute actual hash
     let mut hasher = Sha256::new();
     hasher.update(data);
     let actual = hex::encode(hasher.finalize());
@@ -190,6 +178,70 @@ async fn verify_sha256(
 
     tracing::info!("SHA256 checksum verified: {actual}");
     Ok(())
+}
+
+/// Extract a 64-char hex SHA256 from a checksum file body.
+/// Tries sha256sum-style format first, then Xray `SHA256=` format.
+fn parse_sha256_from_checksum(body: &str) -> Option<String> {
+    for line in body.lines() {
+        let trimmed = line.trim();
+        if trimmed.is_empty() || trimmed.starts_with('#') {
+            continue;
+        }
+
+        // sha256sum format: leading 64-hex token
+        if let Some(first) = trimmed.split_whitespace().next() {
+            if first.len() == 64 && first.chars().all(|c| c.is_ascii_hexdigit()) {
+                return Some(first.to_lowercase());
+            }
+        }
+
+        // Xray .dgst format: "SHA256= <hex>"
+        if trimmed.starts_with("SHA256") {
+            if let Some(after_eq) = trimmed.split('=').nth(1) {
+                let candidate = after_eq.trim().to_lowercase();
+                if candidate.len() == 64 && candidate.chars().all(|c| c.is_ascii_hexdigit()) {
+                    return Some(candidate);
+                }
+            }
+        }
+    }
+    None
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parse_sha256_singbox_format() {
+        let body = "1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef  sing-box-1.11.0-windows-amd64.zip\n";
+        let hash = parse_sha256_from_checksum(body).unwrap();
+        assert_eq!(hash.len(), 64);
+        assert!(hash.starts_with("1234567890abcdef"));
+    }
+
+    #[test]
+    fn parse_sha256_xray_format() {
+        let body = "MD5= ignored\nSHA1= ignored\nSHA256= ABCDEF1234567890ABCDEF1234567890ABCDEF1234567890ABCDEF1234567890\n";
+        let hash = parse_sha256_from_checksum(body).unwrap();
+        assert_eq!(hash, "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890");
+    }
+
+    #[test]
+    fn parse_sha256_returns_none_on_garbage() {
+        assert!(parse_sha256_from_checksum("not a checksum file").is_none());
+        assert!(parse_sha256_from_checksum("").is_none());
+        // Too short
+        assert!(parse_sha256_from_checksum("abc123  file.zip").is_none());
+    }
+
+    #[test]
+    fn parse_sha256_skips_comments_and_blanks() {
+        let body = "# comment\n\nDEADBEEFDEADBEEFDEADBEEFDEADBEEFDEADBEEFDEADBEEFDEADBEEFDEADBEEF  file.zip\n";
+        let hash = parse_sha256_from_checksum(body).unwrap();
+        assert!(hash.starts_with("deadbeef"));
+    }
 }
 
 fn find_file_recursive(dir: &Path, name: &str) -> Result<PathBuf> {

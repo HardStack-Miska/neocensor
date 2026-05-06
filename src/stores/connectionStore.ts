@@ -4,10 +4,13 @@ import type { ConnectionStatus } from '../lib/types';
 import * as api from '../lib/tauri';
 import { toast } from './toastStore';
 
+export type VpnMode = 'off' | 'tun' | 'proxy_only';
+
 interface ConnectionStore {
   status: ConnectionStatus;
   activeServerId: string | null;
   uptimeSecs: number;
+  vpnMode: VpnMode;
 
   connect: (serverId: string) => Promise<void>;
   disconnect: () => Promise<void>;
@@ -17,12 +20,16 @@ interface ConnectionStore {
 }
 
 let _unlisten: UnlistenFn | null = null;
+let _unlistenWarning: UnlistenFn | null = null;
+let _unlistenError: UnlistenFn | null = null;
+let _unlistenMode: UnlistenFn | null = null;
 let _initialized = false;
 
 export const useConnectionStore = create<ConnectionStore>((set) => ({
   status: 'disconnected',
   activeServerId: null,
   uptimeSecs: 0,
+  vpnMode: 'off',
 
   connect: async (serverId) => {
     set({ status: 'connecting', activeServerId: serverId });
@@ -71,12 +78,46 @@ export const useConnectionStore = create<ConnectionStore>((set) => ({
         set({ status: 'error' });
       }
     });
+
+    // Warn user when VPN is in proxy-only fallback (per-app routing disabled)
+    _unlistenWarning = await listen<{ mode: string; message: string }>('vpn-mode-warning', (event) => {
+      if (event.payload?.message) {
+        toast.warning(event.payload.message);
+      }
+    });
+
+    // Surface watchdog/sing-box crash events
+    _unlistenError = await listen<{ code: string; message: string }>('vpn-error', (event) => {
+      if (event.payload?.message) {
+        toast.error(event.payload.message);
+      }
+    });
+
+    // Track active VPN mode (tun = full per-app routing, proxy_only = no per-app)
+    _unlistenMode = await listen<string>('vpn-mode', (event) => {
+      const mode = event.payload as VpnMode;
+      if (mode === 'tun' || mode === 'proxy_only' || mode === 'off') {
+        set({ vpnMode: mode });
+      }
+    });
   },
 
   destroy: () => {
     if (_unlisten) {
       _unlisten();
       _unlisten = null;
+    }
+    if (_unlistenWarning) {
+      _unlistenWarning();
+      _unlistenWarning = null;
+    }
+    if (_unlistenError) {
+      _unlistenError();
+      _unlistenError = null;
+    }
+    if (_unlistenMode) {
+      _unlistenMode();
+      _unlistenMode = null;
     }
     _initialized = false;
   },

@@ -32,8 +32,14 @@ pub fn init_logging(log_dir: &Path) -> broadcast::Sender<String> {
     let sender = broadcaster.sender();
     let sender_clone = sender.clone();
 
-    // File appender
-    let file_appender = tracing_appender::rolling::daily(log_dir, "neocensor.log");
+    // File appender — daily rotation, keep 14 days max
+    let file_appender = tracing_appender::rolling::Builder::new()
+        .filename_prefix("neocensor")
+        .filename_suffix("log")
+        .rotation(tracing_appender::rolling::Rotation::DAILY)
+        .max_log_files(14)
+        .build(log_dir)
+        .expect("failed to build rolling file appender");
     let (file_writer, _guard) = tracing_appender::non_blocking(file_appender);
     // Leak guard so it lives for the process lifetime
     std::mem::forget(_guard);

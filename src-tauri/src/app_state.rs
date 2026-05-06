@@ -1,5 +1,6 @@
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 
+use tauri::async_runtime::JoinHandle as TauriJoinHandle;
 use tokio::sync::{broadcast, Mutex};
 
 use crate::core::persistence::Store;
@@ -40,6 +41,18 @@ pub struct ManagedState {
     pub connections: Mutex<Vec<ConnectionEvent>>,
     /// Monotonic connection counter for unique IDs.
     pub conn_counter: AtomicU64,
+    /// Whether the Windows system proxy was set by us (and thus needs unsetting).
+    pub system_proxy_set: AtomicBool,
+    /// Serializes subscription refresh operations (prevents double-refresh races).
+    pub subscription_refresh_lock: Mutex<()>,
+    /// Background task handles for clean shutdown.
+    pub background_tasks: std::sync::Mutex<Vec<TauriJoinHandle<()>>>,
+    /// Top-level lock for connect/disconnect commands. Prevents two concurrent
+    /// `connect` invocations from racing on `active_server_id` / sing-box state.
+    pub connect_lock: Mutex<()>,
+    /// True while a transient sing-box restart is in flight (e.g. route change).
+    /// Watchdog must NOT treat is_alive==false as a crash during this window.
+    pub transition_in_progress: AtomicBool,
 }
 
 impl ManagedState {
@@ -78,6 +91,30 @@ impl ManagedState {
             log_sender,
             connections: Mutex::new(Vec::new()),
             conn_counter: AtomicU64::new(0),
+            system_proxy_set: AtomicBool::new(false),
+            subscription_refresh_lock: Mutex::new(()),
+            background_tasks: std::sync::Mutex::new(Vec::new()),
+            connect_lock: Mutex::new(()),
+            transition_in_progress: AtomicBool::new(false),
+        }
+    }
+
+    /// Register a background task so it can be aborted on shutdown.
+    /// Synchronous — std::sync::Mutex is fine since we never hold across await.
+    pub fn register_task(&self, handle: TauriJoinHandle<()>) {
+        if let Ok(mut guard) = self.background_tasks.lock() {
+            guard.push(handle);
+        }
+    }
+
+    /// Abort all registered background tasks. Called from the Exit handler.
+    pub fn abort_background_tasks(&self) {
+        let tasks = match self.background_tasks.lock() {
+            Ok(mut g) => std::mem::take(&mut *g),
+            Err(_) => return,
+        };
+        for task in tasks {
+            task.abort();
         }
     }
 

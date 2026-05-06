@@ -17,7 +17,7 @@ pub fn setup_tray(app: &AppHandle) -> Result<(), Box<dyn std::error::Error>> {
         &[&connect_item, &disconnect_item, &separator, &show_item, &quit_item],
     )?;
 
-    let _tray = TrayIconBuilder::new()
+    let _tray = TrayIconBuilder::with_id("main")
         .menu(&menu)
         .tooltip("NeoCensor — Disconnected")
         .on_menu_event(move |app_handle, event| {
@@ -56,4 +56,11 @@ pub fn setup_tray(app: &AppHandle) -> Result<(), Box<dyn std::error::Error>> {
 
     tracing::info!("system tray initialized");
     Ok(())
+}
+
+/// Update the tray tooltip — called from connection commands when status changes.
+pub fn update_tray_tooltip(app: &AppHandle, text: &str) {
+    if let Some(tray) = app.tray_by_id("main") {
+        let _ = tray.set_tooltip(Some(text));
+    }
 }

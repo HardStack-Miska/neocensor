@@ -54,9 +54,11 @@ export const RoutingPanel = () => {
   const T = useThemeStore((s) => s.theme);
   const { routes, fetchRoutes, setRoute, fetchProcesses, processes } = useRoutingStore();
   const status = useConnectionStore((s) => s.status);
+  const vpnMode = useConnectionStore((s) => s.vpnMode);
   const killSwitch = useSettingsStore((s) => s.settings.kill_switch);
   const [query, setQuery] = useState('');
   const [showAdd, setShowAdd] = useState(false);
+  const isProxyOnly = status === 'connected' && vpnMode === 'proxy_only';
 
   useEffect(() => {
     fetchRoutes();
@@ -108,6 +110,36 @@ export const RoutingPanel = () => {
         <StatCard label="Rules" value={stats.rules} color={T.ok} bg={T.okS} icon={Activity} />
         <StatCard label="Kill Switch" value={stats.killSwitch} color={T.er} bg={T.erS} icon={Zap} />
       </div>
+
+      {isProxyOnly && (
+        <div
+          style={{
+            background: T.erS,
+            border: `1px solid ${T.er}`,
+            borderRadius: 8,
+            padding: '10px 14px',
+            marginBottom: 14,
+            fontSize: 11.5,
+            color: T.t0,
+            display: 'flex',
+            gap: 10,
+            alignItems: 'flex-start',
+            fontFamily: SANS,
+          }}
+        >
+          <Shield size={14} style={{ color: T.er, marginTop: 1, flexShrink: 0 }} />
+          <div>
+            <div style={{ fontWeight: 600, marginBottom: 3 }}>
+              Per-app routing disabled (proxy-only mode)
+            </div>
+            <div style={{ color: T.t2, lineHeight: 1.45 }}>
+              Running without admin rights — TUN failed. All apps configured to use the system
+              proxy share <strong>one</strong> server. Restart NeoCensor as administrator to
+              enable per-app routing.
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Search bar */}
       <div style={{ position: 'relative', marginBottom: 10 }}>

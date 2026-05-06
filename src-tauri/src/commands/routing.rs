@@ -23,7 +23,7 @@ pub async fn set_app_route(
             route.mode = mode;
         } else {
             let category = {
-                let mut monitor = state.process_monitor.lock().await;
+                let monitor = state.process_monitor.lock().await;
                 monitor.category(&process_name)
             };
             let route = AppRoute::new(&process_name, mode)
@@ -79,21 +79,19 @@ pub async fn set_active_profile(
     state: State<'_, ManagedState>,
     profile_id: String,
 ) -> Result<(), String> {
-    // Save current routes into the currently active profile before switching
+    // Save current routes into the currently active profile before switching.
+    // Hold one profiles lock for both mutate + save to avoid TOCTOU.
     {
-        let app_state = state.app_state.lock().await;
-        let current_profile_id = app_state.active_profile_id.clone();
-        drop(app_state);
-
+        let current_profile_id = {
+            let app_state = state.app_state.lock().await;
+            app_state.active_profile_id.clone()
+        };
         if let Some(current_id) = current_profile_id {
             let current_routes = state.app_routes.lock().await.clone();
             let mut profiles = state.profiles.lock().await;
             if let Some(profile) = profiles.iter_mut().find(|p| p.id == current_id) {
                 profile.routes = current_routes;
             }
-            drop(profiles);
-            // Persist updated profiles
-            let profiles = state.profiles.lock().await;
             if let Err(e) = state.store.save_profiles(&profiles) {
                 tracing::error!("failed to save profiles: {e}");
             }
@@ -163,18 +161,17 @@ pub async fn update_settings(
 }
 
 /// Restart sing-box with current routes if VPN is connected.
+/// Acquires locks in documented order: 1 settings → 2 profiles → 3 app_state → 4 server_store → 5 app_routes.
 async fn restart_singbox_with_routes(state: &ManagedState) {
     let is_connected = {
         let app_state = state.app_state.lock().await;
         app_state.status == ConnectionStatus::Connected
     };
-
     if !is_connected {
         return;
     }
 
     let settings = state.settings.lock().await.clone();
-
     let default_mode = {
         let profiles = state.profiles.lock().await;
         let app_state = state.app_state.lock().await;
@@ -185,39 +182,59 @@ async fn restart_singbox_with_routes(state: &ManagedState) {
             .map(|p| p.default_mode)
             .unwrap_or(RouteMode::Direct)
     };
-
-    let routes = state.app_routes.lock().await.clone();
-
-    // Find active server config
-    let server = {
-        let app_state = state.app_state.lock().await;
-        let server_id = match app_state.active_server_id {
+    let active_server_id = {
+        let s = state.app_state.lock().await;
+        match s.active_server_id {
             Some(id) => id,
             None => return,
-        };
-        drop(app_state);
-
+        }
+    };
+    let server = {
         let store = state.server_store.lock().await;
-        match store.iter().find(|s| s.config.id == server_id) {
+        match store.iter().find(|s| s.config.id == active_server_id) {
             Some(entry) => entry.config.clone(),
             None => return,
         }
     };
+    let routes = state.app_routes.lock().await.clone();
 
-    // Generate new config and restart
-    // Check if sing-box is running with TUN (process alive = TUN likely worked)
-    let tun_mode = state.singbox.is_alive().await;
-    match ConfigGenerator::generate_singbox_config(&server, &settings, &routes, default_mode, tun_mode) {
-        Ok(config) => {
-            if let Err(e) = state.singbox.restart(&config).await {
-                tracing::error!("sing-box restart failed: {e}");
-            } else {
-                tracing::info!("sing-box restarted with updated routes");
-            }
-        }
+    let tun_mode = state.singbox.is_tun_active();
+    // Quick probe — if GitHub unreachable, drop geosite rule_sets to avoid hangs.
+    let geosite_ok = matches!(
+        tokio::time::timeout(
+            std::time::Duration::from_secs(2),
+            tokio::net::TcpStream::connect("raw.githubusercontent.com:443"),
+        )
+        .await,
+        Ok(Ok(_))
+    );
+    let config_result = if geosite_ok {
+        ConfigGenerator::generate_singbox_config(&server, &settings, &routes, default_mode, tun_mode)
+    } else {
+        ConfigGenerator::generate_singbox_config_no_geosite(
+            &server, &settings, &routes, default_mode, tun_mode,
+        )
+    };
+    let config = match config_result {
+        Ok(c) => c,
         Err(e) => {
             tracing::error!("sing-box config generation failed on restart: {e}");
+            return;
         }
+    };
+
+    // Tell the watchdog to ignore the brief is_alive==false window during restart
+    state
+        .transition_in_progress
+        .store(true, std::sync::atomic::Ordering::Release);
+    let restart_result = state.singbox.restart(&config, tun_mode).await;
+    state
+        .transition_in_progress
+        .store(false, std::sync::atomic::Ordering::Release);
+
+    match restart_result {
+        Ok(()) => tracing::info!("sing-box restarted with updated routes (tun_mode={tun_mode})"),
+        Err(e) => tracing::error!("sing-box restart failed: {e}"),
     }
 }
 
@@ -239,9 +256,6 @@ async fn sync_routes_to_profile(state: &ManagedState) {
         if let Some(profile) = profiles.iter_mut().find(|p| p.id == pid) {
             profile.routes = current_routes;
         }
-        drop(profiles);
-
-        let profiles = state.profiles.lock().await;
         if let Err(e) = state.store.save_profiles(&profiles) {
             tracing::error!("failed to save profiles: {e}");
         }
